@@ -5,7 +5,7 @@
 `footprint` puts live estimates of the **energy (Wh), water (mL), and carbon (gCO2e)** of your AI coding sessions where you can't ignore them — in the Claude Code statusline — and gives you a `/footprint` command that answers the two questions that actually change behavior: **which model should I use, and when should I run the heavy stuff?**
 
 ```
-⚡ 240 Wh [72–850] 💧 ~310 mL 🌫 83 g (loc-based) | 114k in · 2.0M cache · 51k out
+⚡ 240 Wh [72–850] 💧 ~310 mL 🌫 83 gCO2e (loc-based) | 114k in · 2.0M cache · 51k out
 ```
 
 ## Why this exists (and why it's honest)

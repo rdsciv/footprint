@@ -16,7 +16,7 @@ import math
 import os
 
 PLACEHOLDER_TOKENS = "– in · – cache · – out"
-PLACEHOLDER_LINE = "⚡ – Wh 💧 – mL 🌫 – g (loc-based) | " + PLACEHOLDER_TOKENS
+PLACEHOLDER_LINE = "⚡ – Wh 💧 – mL 🌫 – gCO2e (loc-based) | " + PLACEHOLDER_TOKENS
 BOUNDS = ("central", "low", "high")
 
 
@@ -197,7 +197,7 @@ def render(res, verbose=False):
         "⚡ %s%s Wh [%s–%s]" % (fmt_sig(e[0]), q, fmt_sig(e[1]), fmt_sig(e[2])),
         "💧 ~%s mL" % fmt_sig(w[0])
         + (" [%s–%s]" % (fmt_sig(w[1]), fmt_sig(w[2])) if verbose else ""),
-        "🌫 %s g %s" % (fmt_sig(c[0]), c_tag)
+        "🌫 %s gCO2e %s" % (fmt_sig(c[0]), c_tag)
         + (" [%s–%s]" % (fmt_sig(c[1]), fmt_sig(c[2])) if verbose else ""),
     ]
     t = res["tokens"]

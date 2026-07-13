@@ -166,8 +166,8 @@ with open(tpath, "w") as f:
 stdin = json.dumps({"transcript_path": tpath, "session_id": "x"})
 r = subprocess.run([sys.executable, os.path.join(HERE, "footprint_statusline.py")],
                    input=stdin, capture_output=True, text=True, env=dict(os.environ))
-check("7f statusline uses fresh cache: live-grid tag + 1.2 g (4.68Wh*250g/kWh)",
-      "(live-grid 250g)" in r.stdout and "🌫 1.2 g" in r.stdout, r.stdout)
+check("7f statusline uses fresh cache: live-grid tag + 1.2 gCO2e (4.68Wh*250g/kWh)",
+      "(live-grid 250g)" in r.stdout and "🌫 1.2 gCO2e" in r.stdout, r.stdout)
 write_cache({"fetched_at": time.time() - 2 * 3600, "ci_g_per_kwh": 250.0, "zone": "TEST"})
 r = subprocess.run([sys.executable, os.path.join(HERE, "footprint_statusline.py")],
                    input=stdin, capture_output=True, text=True, env=dict(os.environ))

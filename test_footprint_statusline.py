@@ -103,7 +103,7 @@ line = run(p)
 check("1f displayed energy is 2 sig figs '4.7'", "⚡ 4.7 Wh" in line, line)
 check("1g displayed range [1.8–13]", "[1.8–13]" in line, "")
 check("1h displayed water '~5.9 mL'", "💧 ~5.9 mL" in line, "")
-check("1i displayed carbon '1.6 g (loc-based)'", "🌫 1.6 g (loc-based)" in line, "")
+check("1i displayed carbon '1.6 gCO2e (loc-based)'", "🌫 1.6 gCO2e (loc-based)" in line, "")
 check("1j token counts '10k in · 50k cache · 2.0k out'", "10k in · 50k cache · 2.0k out" in line, "")
 
 # ---------------------------------------------------------------------------
