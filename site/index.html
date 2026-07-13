@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>footprint — the energy, water &amp; carbon of your AI prompts</title>
+<meta name="description" content="Estimate the energy (Wh), water (mL) and carbon (gCO2e) of LLM usage — with honest uncertainty ranges, a duck-curve timing explorer, and a model comparison. From the footprint open-source project.">
+<meta property="og:title" content="footprint — what does your AI usage actually cost?">
+<meta property="og:description" content="Energy, water & carbon per prompt, with honest uncertainty ranges. Try the duck-curve explorer: the same prompt can carry >10x the carbon depending on the hour.">
+<meta property="og:type" content="website">
+<style>
+:root{
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --blue:#2a78d6; --blue-med:#256abf; --blue-deep:#104281; --red:#e34948;
+  --seq250:#86b6ef; --seq450:#2a78d6; --seq650:#104281;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --blue:#3987e5; --blue-med:#2a78d6; --blue-deep:#86b6ef; --red:#e66767;
+    --seq250:#184f95; --seq450:#3987e5; --seq650:#9ec5f4;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
+main{max-width:900px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:1.7rem;margin:.4em 0 .1em}
+h2{font-size:1.15rem;margin:2.2em 0 .4em}
+p{color:var(--ink2)}
+a{color:var(--blue-med)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;margin:14px 0}
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:end;margin-bottom:8px}
+.controls label{display:flex;flex-direction:column;font-size:.78rem;color:var(--muted);gap:4px;min-width:120px}
+select,input[type=range]{accent-color:var(--blue);font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--border);border-radius:6px;padding:6px}
+input[type=range]{border:0;background:transparent;padding:0;min-width:180px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px}
+.tile{background:var(--page);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.tile .v{font-size:1.5rem;font-weight:650}
+.tile .r{font-size:.78rem;color:var(--muted)}
+.tile .l{font-size:.78rem;color:var(--ink2);margin-top:2px}
+.eq{font-size:.85rem;color:var(--ink2);margin-top:10px}
+.note{font-size:.78rem;color:var(--muted)}
+.chartwrap{overflow-x:auto}
+svg text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.tooltip{position:fixed;pointer-events:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:6px 9px;font-size:.78rem;color:var(--ink);box-shadow:0 2px 10px rgba(0,0,0,.12);display:none;z-index:10}
+button.copy{font:inherit;background:var(--blue);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
+button.copy:hover{background:var(--blue-med)}
+.err{color:var(--red);font-weight:600}
+footer{margin-top:40px;font-size:.8rem;color:var(--muted)}
+table{border-collapse:collapse;font-size:.85rem;width:100%}
+td,th{text-align:left;padding:4px 10px 4px 0;border-bottom:1px solid var(--grid);color:var(--ink2)}
+th{color:var(--muted);font-weight:500}
+</style>
+</head>
+<body>
+<main>
+<h1>footprint</h1>
+<p>What does your AI usage actually cost in <strong>energy, water and carbon</strong>?
+Estimates with honest uncertainty ranges — every coefficient sourced, labeled
+<em>measured / modeled / speculative</em>, and versioned in
+<a href="../coefficients.json">coefficients.json</a>. Live in your Claude Code statusline via the
+<a href="https://github.com/REPLACE_OWNER/footprint">open-source repo</a>.</p>
+<p id="loadstate" class="note">loading coefficients…</p>
+
+<h2>1 · Estimate a workload</h2>
+<div class="card" id="calc" hidden>
+  <div class="controls">
+    <label>model class
+      <select id="tier">
+        <option value="small">small — Haiku / Flash / nano class</option>
+        <option value="mid" selected>mid — Sonnet / mini class</option>
+        <option value="frontier">frontier — Opus / GPT-5 / Pro class</option>
+      </select></label>
+    <label>workload shape
+      <select id="profile">
+        <option value="chat">chat (80% in / 20% out)</option>
+        <option value="agent" selected>coding agent (90% cache reads)</option>
+        <option value="out-heavy">generation-heavy (80% out)</option>
+      </select></label>
+    <label>climate region (water)
+      <select id="region"></select></label>
+    <label><span>total tokens: <strong id="toklabel">500k</strong></span>
+      <input type="range" id="tokens" min="3" max="7" step="0.05" value="5.699"></label>
+  </div>
+  <div class="tiles" id="tiles"></div>
+  <div class="eq" id="equiv"></div>
+  <p class="note" id="basisnote"></p>
+  <button class="copy" id="share">Copy result card</button>
+</div>
+
+<h2>2 · When you prompt: the duck curve</h2>
+<p>The <em>same workload</em> carries very different carbon depending on the hour, because the
+grid's marginal generator changes. Hover / tap the curve — stylized from documented CAISO
+anchors (≈0 g midday surplus, 500–630 g evening ramp).
+Full story: <a href="../docs/02-duck-curve-and-grid.md">doc 02</a>.</p>
+<div class="card chartwrap"><div id="duck"></div><p class="note" id="ducknote"></p></div>
+
+<h2>3 · Which model: energy per tier</h2>
+<p>Energy for the workload configured above, re-priced on each model tier.
+Whiskers are the propagated low–high bounds (all tier coefficients are MODELED — 2–3× bands).
+Decision guide: <a href="../docs/05-which-model-when.md">doc 05</a>.</p>
+<div class="card chartwrap"><div id="tiers"></div></div>
+
+<h2>Read the deep dives</h2>
+<table>
+<tr><th>doc</th><th>one-line takeaway</th></tr>
+<tr><td><a href="../docs/01-energy-of-inference.md">01 · Energy of inference</a></td><td>the honest unit is the token, priced by class, with a range</td></tr>
+<tr><td><a href="../docs/02-duck-curve-and-grid.md">02 · The duck curve</a></td><td>&gt;10× carbon swing by hour of day on solar-heavy grids</td></tr>
+<tr><td><a href="../docs/03-fuel-mix-and-diesel-backup.md">03 · Fuel mix &amp; diesel backup</a></td><td>wind 11 g vs diesel-backup ~840 gCO2e/kWh — a 20–80× ladder</td></tr>
+<tr><td><a href="../docs/04-water.md">04 · Water</a></td><td>the power plant evaporates more water for your prompt than the datacenter</td></tr>
+<tr><td><a href="../docs/05-which-model-when.md">05 · Which model, when</a></td><td>one tier down + batch API = cheapest and cleanest</td></tr>
+</table>
+
+<footer>
+Estimates, not measurements — directional by design. Methodology, limitations and every source:
+<a href="https://github.com/REPLACE_OWNER/footprint">github.com/REPLACE_OWNER/footprint</a>.
+Palette: validated reference dataviz palette; charts carry direct labels and ranges.
+</footer>
+</main>
+<div class="tooltip" id="tip"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const BOUNDS = ["central","low","high"];
+const PROFILES = {chat:[0.8,0,0.2], agent:[0.05,0.9,0.05], "out-heavy":[0.2,0,0.8]};
+const DUCK = [420,420,415,410,415,430,400,300,150,60,20,10,10,15,40,120,280,480,590,630,560,500,460,430];
+let C = null; // coefficients.json
+
+const fmtSig = (x,n=2)=>{ if(x===0) return "0";
+  const d = n-1-Math.floor(Math.log10(Math.abs(x)));
+  let y = Number(x.toFixed(Math.max(d,0)));
+  return d>0 ? y.toFixed(Math.max(d,0)) : String(Math.round(y)); };
+const fmtTok = n => n<1e3?String(n) : n<1e4?(n/1e3).toFixed(1)+"k" : n<1e6?Math.round(n/1e3)+"k" : (n/1e6).toFixed(1)+"M";
+
+function computeTier(tierName, tokens){
+  const t = C.model_tiers[tierName], pue = C.infrastructure_overhead.PUE_typical_hyperscale;
+  return BOUNDS.map(b => (tokens.in*t.e_in_Wh_per_1k_tok[b] + tokens.cache*t.e_cache_Wh_per_1k_tok[b]
+      + tokens.out*t.e_out_Wh_per_1k_tok[b]) / 1000 * pue[b]);
+}
+function waterCarbon(energy, regionKey, ciOverride){
+  const r = C.region_presets[regionKey];
+  const water = BOUNDS.map((b,i)=> energy[i]*(r.WUE_site_L_per_kWh[b]+r.EWIF_offsite_L_per_kWh_seasonal_fallback[b]));
+  const ci = ciOverride ?? C.carbon_intensity_accounting_note.google_2024_example_gCO2e_per_kWh.location_based;
+  return {water, carbon: energy.map(e=>e/1000*ci), ci};
+}
+function currentTokens(){
+  const total = Math.round(Math.pow(10, +$("tokens").value));
+  const [fi,fc,fo] = PROFILES[$("profile").value];
+  const tin = Math.round(total*fi), tc = Math.round(total*fc);
+  return {in:tin, cache:tc, out:total-tin-tc, total};
+}
+function equivalences(e,w,c){
+  const a = C.equivalence_anchors; if(!a) return "";
+  const out = [];
+  out.push("≈ "+fmtSig(e/a.smartphone_full_charge_Wh.central)+" phone charges");
+  out.push("≈ "+fmtSig(e/a.led_bulb_W.central*60)+" min of a 10W LED");
+  out.push("≈ "+fmtSig(w/a.water_bottle_mL.central*100)+"% of a 500 mL bottle");
+  out.push("≈ "+fmtSig(c/a.ice_car_gCO2e_per_km.central*1000)+" m in an average gas car");
+  return out.join(" · ");
+}
+let last = null;
+function renderCalc(){
+  const tk = currentTokens();
+  $("toklabel").textContent = fmtTok(tk.total);
+  const e = computeTier($("tier").value, tk);
+  const {water:w, carbon:c, ci} = waterCarbon(e, $("region").value);
+  last = {e,w,c,tk,ci};
+  const tile=(icon,name,v,unit,lo,hi)=>`<div class="tile"><div class="l">${icon} ${name}</div>
+    <div class="v">${v}<span style="font-size:.8rem;font-weight:400"> ${unit}</span></div>
+    <div class="r">range ${lo} – ${hi}</div></div>`;
+  $("tiles").innerHTML =
+    tile("⚡","energy",fmtSig(e[0]),"Wh",fmtSig(e[1]),fmtSig(e[2])) +
+    tile("💧","water (consumed)","~"+fmtSig(w[0]),"mL",fmtSig(w[1]),fmtSig(w[2])) +
+    tile("🌫","carbon",fmtSig(c[0]),"gCO2e",fmtSig(c[1]),fmtSig(c[2]));
+  $("equiv").textContent = equivalences(e[0],w[0],c[0]);
+  $("basisnote").textContent = "Carbon basis: location-based static average "+ci+
+    " g/kWh (Google 2024 fleet disclosure). Split: "+fmtTok(tk.in)+" in / "+fmtTok(tk.cache)+
+    " cache / "+fmtTok(tk.out)+" out. Water includes off-site generation water (EWIF).";
+  renderDuck(); renderTiers();
+}
+
+/* ---- duck curve (line + crosshair tooltip + click-to-pin) ---- */
+let pinned = 19;
+function renderDuck(){
+  const W=820,H=300,L=52,R=14,T=18,B=40,pw=W-L-R,ph=H-T-B,ymax=700;
+  const X=h=>L+pw*h/23, Y=v=>T+ph*(1-v/ymax);
+  const pts = DUCK.map((v,h)=>X(h).toFixed(1)+","+Y(v).toFixed(1)).join(" ");
+  const minCI = Math.min(...DUCK);
+  let g = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="stylized marginal carbon intensity by hour">`;
+  for(const gv of [0,200,400,600]) g += `<line x1="${L}" y1="${Y(gv)}" x2="${L+pw}" y2="${Y(gv)}" stroke="var(--grid)"/>`+
+    `<text x="${L-6}" y="${Y(gv)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${gv}</text>`;
+  for(const h of [0,6,12,18,23]) g += `<text x="${X(h)}" y="${H-B+16}" text-anchor="middle" font-size="10" fill="var(--muted)">${String(h).padStart(2,"0")}:00</text>`;
+  g += `<polygon points="${L},${Y(0)} ${pts} ${L+pw},${Y(0)}" fill="var(--blue)" opacity="0.10"/>`;
+  g += `<polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linejoin="round"/>`;
+  g += `<line x1="${X(pinned)}" y1="${T}" x2="${X(pinned)}" y2="${Y(0)}" stroke="var(--axis)" stroke-dasharray="3,3"/>`;
+  g += `<circle cx="${X(pinned)}" cy="${Y(DUCK[pinned])}" r="5" fill="var(--red)" stroke="var(--surface)" stroke-width="2"/>`;
+  g += `<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="transparent" id="duckhit" style="cursor:crosshair"/></svg>`;
+  $("duck").innerHTML = g;
+  const carbonAt = h => last ? last.e[0]/1000*DUCK[h] : null;
+  const noteFor = h => {
+    const mult = DUCK[h]/Math.max(minCI,1);
+    let s = `Pinned ${String(h).padStart(2,"0")}:00 — ~${DUCK[h]} g/kWh marginal, ${fmtSig(mult)}× the cleanest hour.`;
+    if(last) s += ` Your configured workload at this hour: ~${fmtSig(carbonAt(h))} gCO2e (vs ${fmtSig(last.e[0]/1000*minCI)} g at solar noon).`;
+    return s + " Stylized curve — configure the CLI's live signal for your real grid.";
+  };
+  $("ducknote").textContent = noteFor(pinned);
+  const hit = $("duckhit"), tip = $("tip"), svg = $("duck").firstChild;
+  const hourFromEvent = ev => {
+    const r = svg.getBoundingClientRect();
+    const x = (ev.clientX - r.left)/r.width*W;
+    return Math.max(0, Math.min(23, Math.round((x-L)/pw*23)));
+  };
+  hit.addEventListener("mousemove", ev=>{
+    const h = hourFromEvent(ev);
+    tip.style.display="block"; tip.style.left=(ev.clientX+12)+"px"; tip.style.top=(ev.clientY-10)+"px";
+    tip.innerHTML = `<strong>${String(h).padStart(2,"0")}:00</strong> · ~${DUCK[h]} g/kWh`+
+      (last?`<br>workload ≈ ${fmtSig(last.e[0]/1000*DUCK[h])} gCO2e`:"");
+  });
+  hit.addEventListener("mouseleave", ()=> tip.style.display="none");
+  hit.addEventListener("click", ev=>{ pinned = hourFromEvent(ev); renderDuck(); });
+}
+
+/* ---- tier comparison (horizontal bars + whiskers + direct labels) ---- */
+function renderTiers(){
+  if(!last) return;
+  const tiers = ["small","mid","frontier"];
+  const cols = ["var(--seq250)","var(--seq450)","var(--seq650)"];
+  const data = tiers.map(t=>computeTier(t,last.tk));
+  const W=820,H=190,L=86,R=120,T=14,B=30,pw=W-L-R,rh=(H-T-B)/3,bar=20;
+  const xmax = Math.max(...data.map(d=>d[2]))*1.05;
+  const BX=v=>L+pw*v/xmax;
+  let g = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="energy by model tier">`;
+  const sel = $("tier").value;
+  tiers.forEach((t,i)=>{
+    const cy=T+rh*i+rh/2, d=data[i];
+    g += `<text x="${L-8}" y="${cy+4}" text-anchor="end" font-size="12" fill="var(--ink)" font-weight="${t===sel?700:400}">${t}</text>`;
+    g += `<rect x="${L}" y="${cy-bar/2}" width="${Math.max(BX(d[0])-L,2)}" height="${bar}" rx="4" fill="${cols[i]}" class="tbar" data-i="${i}"/>`;
+    g += `<line x1="${BX(d[1])}" y1="${cy}" x2="${BX(d[2])}" y2="${cy}" stroke="var(--ink2)" stroke-width="1.5"/>`;
+    g += `<line x1="${BX(d[1])}" y1="${cy-5}" x2="${BX(d[1])}" y2="${cy+5}" stroke="var(--ink2)" stroke-width="1.5"/>`;
+    g += `<line x1="${BX(d[2])}" y1="${cy-5}" x2="${BX(d[2])}" y2="${cy+5}" stroke="var(--ink2)" stroke-width="1.5"/>`;
+    g += `<text x="${BX(d[2])+8}" y="${cy+4}" font-size="11" font-weight="600" fill="var(--ink)">${fmtSig(d[0])} Wh${t===sel?" ← selected":""}</text>`;
+  });
+  g += `<line x1="${L}" y1="${T}" x2="${L}" y2="${H-B}" stroke="var(--axis)"/>`;
+  g += `<text x="${L}" y="${H-8}" font-size="10" fill="var(--muted)">Wh for ${fmtTok(last.tk.total)} tokens, ${$("profile").value} shape — whiskers = low–high bounds</text></svg>`;
+  $("tiers").innerHTML = g;
+  const tip = $("tip");
+  document.querySelectorAll(".tbar").forEach(el=>{
+    el.addEventListener("mousemove", ev=>{
+      const d = data[+el.dataset.i];
+      tip.style.display="block"; tip.style.left=(ev.clientX+12)+"px"; tip.style.top=(ev.clientY-10)+"px";
+      tip.innerHTML = `<strong>${tiers[+el.dataset.i]}</strong> · ${fmtSig(d[0])} Wh<br>range ${fmtSig(d[1])} – ${fmtSig(d[2])} Wh`;
+    });
+    el.addEventListener("mouseleave", ()=> tip.style.display="none");
+  });
+}
+
+function shareCard(){
+  if(!last) return;
+  const t = `My AI workload estimate (${fmtTok(last.tk.total)} tokens, ${$("tier").value} tier): `+
+    `⚡ ${fmtSig(last.e[0])} Wh · 💧 ~${fmtSig(last.w[0])} mL · 🌫 ${fmtSig(last.c[0])} gCO2e (loc-based). `+
+    `Ranges & methodology: github.com/REPLACE_OWNER/footprint`;
+  navigator.clipboard.writeText(t).then(()=>{ $("share").textContent="Copied ✓"; setTimeout(()=>$("share").textContent="Copy result card",1500); });
+}
+
+async function init(){
+  try{
+    const r = await fetch("../coefficients.json");
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    C = await r.json();
+  }catch(err){
+    $("loadstate").innerHTML = `<span class="err">Could not load coefficients.json (${err.message}).</span> `+
+      `Serve the repo root (e.g. <code>python3 -m http.server</code>) — no numbers will be invented.`;
+    return;
+  }
+  $("loadstate").textContent = "coefficients v"+C.$schema_version+" · updated "+C.$last_updated+
+    " · every value carries {central, low, high, label, source}";
+  const rs = $("region");
+  for(const k of Object.keys(C.region_presets)) if(!k.startsWith("_") && !k.startsWith("$"))
+    rs.add(new Option(k.replace("_"," ") + " — " + (C.region_presets[k].example_locations||[])[0], k));
+  rs.value = "temperate";
+  $("calc").hidden = false;
+  for(const id of ["tier","profile","region","tokens"]) $(id).addEventListener("input", renderCalc);
+  $("share").addEventListener("click", shareCard);
+  renderCalc();
+}
+init();
+</script>
+</body>
+</html>

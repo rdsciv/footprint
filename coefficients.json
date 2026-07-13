@@ -1,0 +1,407 @@
+{
+  "$schema_version": "0.2.0",
+  "$description": "Directional telemetry coefficients for an AI coding-agent statusline. Every value is {central, low, high, label, source}. label in {measured, modeled, speculative}. See METHODOLOGY.md for full derivation.",
+  "$last_updated": "2026-07-12",
+  "$core_equations": {
+    "energy_Wh": "(tok_in * e_in + tok_cache * e_cache + tok_out * e_out) * PUE",
+    "water_L": "energy_kWh * (WUE_site(location, t) + EWIF_grid(location, t))",
+    "carbon_g": "energy_kWh * CI_grid(location, t)"
+  },
+  "model_tiers": {
+    "$description": "Per-token energy coefficients in Wh per 1000 tokens. Map a model name to a tier via model_tier_lookup below.",
+    "small": {
+      "description": "<=20B-class models (Nano/Micro hardware classes): Haiku-class, GPT-4o-mini-class, Llama-8B-class",
+      "e_in_Wh_per_1k_tok": {
+        "central": 0.05,
+        "low": 0.02,
+        "high": 0.125,
+        "label": "modeled",
+        "source": "How Hungry is AI? (arXiv:2505.09598) Nano/Micro hardware-class benchmarks, scaled; cross-checked against Epoch AI (2025) bottom-up FLOP model"
+      },
+      "e_cache_Wh_per_1k_tok": {
+        "central": 0.01,
+        "low": 0.003,
+        "high": 0.03,
+        "label": "modeled",
+        "source": "Price-inferred from Anthropic/OpenAI cache-read pricing discount (~5-10x cheaper than fresh input); NOT a direct hardware measurement"
+      },
+      "e_out_Wh_per_1k_tok": {
+        "central": 0.15,
+        "low": 0.06,
+        "high": 0.375,
+        "label": "modeled",
+        "source": "e_out ~= 3x e_in, consistent with prefill/decode asymmetry documented across all primary sources"
+      },
+      "uncertainty_multiplier": 2.5
+    },
+    "mid": {
+      "description": "~20-70B-class / 'Medium' hardware class: Sonnet-class, mid-size reasoning models",
+      "e_in_Wh_per_1k_tok": {
+        "central": 0.15,
+        "low": 0.075,
+        "high": 0.3,
+        "label": "modeled",
+        "source": "How Hungry is AI? Small/Medium hardware classes; consistent with Google's 0.10-0.24 Wh/prompt full-stack range (arXiv:2508.15734) for an assistant-scale workload"
+      },
+      "e_cache_Wh_per_1k_tok": {
+        "central": 0.03,
+        "low": 0.01,
+        "high": 0.09,
+        "label": "modeled",
+        "source": "Price-inferred, see 'small' tier note"
+      },
+      "e_out_Wh_per_1k_tok": {
+        "central": 0.45,
+        "low": 0.225,
+        "high": 0.9,
+        "label": "modeled",
+        "source": "e_out ~= 3x e_in"
+      },
+      "uncertainty_multiplier": 2.0
+    },
+    "frontier": {
+      "description": "Undisclosed-parameter flagships classified 'Large' (8-GPU hardware class) and extended-reasoning models: Opus-class, GPT-5-class",
+      "e_in_Wh_per_1k_tok": {
+        "central": 0.3,
+        "low": 0.1,
+        "high": 0.9,
+        "label": "modeled",
+        "source": "How Hungry is AI? Large hardware class (8-GPU); consistent with 29 Wh/long-prompt ceiling for most expensive observed configs, and with University of Rhode Island's 18.35 Wh (up to 40 Wh) estimate for GPT-5-class queries"
+      },
+      "e_cache_Wh_per_1k_tok": {
+        "central": 0.06,
+        "low": 0.02,
+        "high": 0.18,
+        "label": "modeled",
+        "source": "Price-inferred, see 'small' tier note"
+      },
+      "e_out_Wh_per_1k_tok": {
+        "central": 0.9,
+        "low": 0.3,
+        "high": 2.7,
+        "label": "modeled",
+        "source": "e_out ~= 3x e_in; note speculative decoding may discount this in practice (direction only, no numeric correction applied -- see METHODOLOGY.md 2.4)"
+      },
+      "uncertainty_multiplier": 3.0
+    }
+  },
+  "model_tier_lookup": {
+    "$description": "Example mapping of common model name substrings to tiers. Statusline implementers should update this as new models ship; unmatched models should default to 'mid' with a wider uncertainty flag rather than silently guessing 'small'.",
+    "haiku": "small",
+    "gpt-4o-mini": "small",
+    "gpt-5-nano": "small",
+    "llama-8b": "small",
+    "flash": "small",
+    "gemini-2.5-flash": "small",
+    "gemini-3-flash": "small",
+    "sonnet": "mid",
+    "gpt-4o-mini-reasoning": "mid",
+    "gpt-5-mini": "mid",
+    "gemini": "mid",
+    "deepseek": "mid",
+    "qwen": "mid",
+    "mistral": "mid",
+    "opus": "frontier",
+    "fable": "frontier",
+    "mythos": "frontier",
+    "gpt-5": "frontier",
+    "gpt-5-pro": "frontier",
+    "o1": "frontier",
+    "o3": "frontier",
+    "grok-4": "frontier",
+    "gemini-2.5-pro": "frontier",
+    "gemini-3-pro": "frontier",
+    "mistral-large": "frontier",
+    "_default_unknown_model": "mid"
+  },
+  "model_overrides": {
+    "$description": "Provider-disclosed MEASURED per-model anchors (LIVE_SIGNAL_ROADMAP.md item 5). These are calibration/display anchors in the provider's own units and accounting basis -- they are NOT yet substituted into the per-token tier math, because each disclosure's workload shape (median assistant prompt, fixed-length page) differs from an arbitrary session. Each entry states its basis so the docs and site can quote it honestly.",
+    "gemini-apps-text-prompt": {
+      "matches": "gemini",
+      "energy_Wh_per_median_prompt": 0.24,
+      "water_mL_per_median_prompt": 0.26,
+      "carbon_gCO2e_per_median_prompt_market_based": 0.03,
+      "label": "measured",
+      "source": "Google, arXiv:2508.15734 (May 2025 median Gemini Apps text prompt, full-stack: accelerator+host+idle+PUE; carbon figure is MARKET-BASED and not comparable to this tool's location-based default)"
+    },
+    "mistral-large-2-400tok-page": {
+      "matches": "mistral-large",
+      "carbon_gCO2e_per_400tok_response": 1.14,
+      "water_mL_per_400tok_response": 45,
+      "label": "measured",
+      "source": "Mistral AI audited LCA (July 2025), Mistral Large 2, one 400-token response; includes amortized training and hardware embodied impacts, so wider scope than this tool's inference-only estimate"
+    }
+  },
+  "generation_carbon_intensity_gCO2e_per_kWh": {
+    "$description": "Lifecycle carbon intensity by generation source. Context/display data for the fuel-mix and diesel-backup analysis (docs/03) -- NOT a term in the core equations, which use grid-level CI. Median lifecycle figures from IPCC AR5 WG3 Annex III harmonization; low/high are the assessed ranges, with NREL LCA-harmonization cross-checks.",
+    "wind_onshore": {
+      "central": 11,
+      "low": 7,
+      "high": 56,
+      "label": "measured",
+      "source": "IPCC AR5 WG3 Annex III lifecycle median (11), range; NREL harmonization consistent (~10-14)"
+    },
+    "solar_utility_pv": {
+      "central": 43,
+      "low": 10,
+      "high": 80,
+      "label": "modeled",
+      "source": "IPCC AR5 median 48 for utility PV; recent NREL/US estimates for modern silicon PV run 10-36, so central nudged down and range tightened vs the 2014 assessment"
+    },
+    "nuclear": {
+      "central": 12,
+      "low": 4,
+      "high": 110,
+      "label": "measured",
+      "source": "IPCC AR5 WG3 Annex III lifecycle median and range"
+    },
+    "hydro": {
+      "central": 24,
+      "low": 1,
+      "high": 2200,
+      "label": "measured",
+      "source": "IPCC AR5 WG3 Annex III; the extreme high tail is tropical reservoirs with high methane flux -- most temperate hydro sits near the median"
+    },
+    "gas_combined_cycle": {
+      "central": 490,
+      "low": 410,
+      "high": 650,
+      "label": "measured",
+      "source": "IPCC AR5 WG3 Annex III lifecycle median and range"
+    },
+    "coal": {
+      "central": 820,
+      "low": 740,
+      "high": 910,
+      "label": "measured",
+      "source": "IPCC AR5 WG3 Annex III lifecycle median and range"
+    },
+    "diesel_backup_generator": {
+      "central": 840,
+      "low": 700,
+      "high": 1000,
+      "label": "modeled",
+      "source": "IPCC AR5 oil-fired generation lifecycle median (840) as the anchor; standby diesel gensets burn ~0.07-0.08 gal/kWh at load (~0.72-0.82 kgCO2/kWh direct combustion) plus upstream fuel-cycle emissions. Backup units run only during outages, testing, and some demand-response events -- the annualized energy share is small, but every kWh they serve is ~20-80x the carbon of the wind/solar kWh they replace"
+    }
+  },
+  "equivalence_anchors": {
+    "$description": "Everyday-scale conversion anchors for display only (report equivalences and the site). Never inputs to the core equations.",
+    "smartphone_full_charge_Wh": {
+      "central": 15,
+      "low": 10,
+      "high": 20,
+      "label": "modeled",
+      "source": "Typical 4,500-5,000 mAh battery at ~3.85 V nominal plus charging losses"
+    },
+    "led_bulb_W": {
+      "central": 10,
+      "low": 8,
+      "high": 12,
+      "label": "modeled",
+      "source": "Common 60W-equivalent household LED draw"
+    },
+    "water_bottle_mL": {
+      "central": 500,
+      "low": 500,
+      "high": 500,
+      "label": "measured",
+      "source": "Definitional: standard 500 mL bottle"
+    },
+    "ice_car_gCO2e_per_km": {
+      "central": 250,
+      "low": 180,
+      "high": 350,
+      "label": "modeled",
+      "source": "US EPA average passenger vehicle ~400 g CO2e/mile ~= 250 g/km; range spans efficient sedans to light trucks"
+    }
+  },
+  "infrastructure_overhead": {
+    "PUE_typical_hyperscale": {
+      "central": 1.2,
+      "low": 1.08,
+      "high": 1.4,
+      "label": "modeled",
+      "source": "Industry-typical modern hyperscale PUE range; well-disclosed relative to other coefficients in this table"
+    },
+    "full_stack_scaling_factor": {
+      "central": 1.72,
+      "low": 1.3,
+      "high": 2.5,
+      "label": "measured",
+      "source": "Google full-stack (accelerator + host + idle-capacity + DC overhead) vs accelerator-only energy, arXiv:2508.15734"
+    }
+  },
+  "carbon_intensity_accounting_note": {
+    "$description": "Location-based (LB) vs market-based (MB) carbon intensity for the SAME electricity can differ by 3-4x. Statusline MUST label which basis is used; default recommendation is location-based for a directional/verifiable tool.",
+    "google_2024_example_gCO2e_per_kWh": {
+      "location_based": 345,
+      "market_based": 94,
+      "procurement_reduction_credit": 251,
+      "label": "measured",
+      "source": "arXiv:2508.15734"
+    },
+    "google_2023_example_gCO2e_per_kWh": {
+      "location_based": 366,
+      "market_based": 135,
+      "procurement_reduction_credit": 231,
+      "label": "measured",
+      "source": "arXiv:2508.15734"
+    }
+  },
+  "region_presets": {
+    "$description": "WUE_site (on-site Water Usage Effectiveness, L/kWh) by climate-class region proxy. EWIF (off-site, grid-mix dependent) is intentionally NOT hardcoded per region as a precise static value -- it changes hourly and should be sourced live where possible (see LIVE_SIGNAL_ROADMAP.md). A coarse seasonal-average EWIF fallback is provided for offline use only, flagged speculative.",
+    "hot_arid": {
+      "example_locations": [
+        "Phoenix AZ",
+        "Las Vegas NV"
+      ],
+      "WUE_site_L_per_kWh": {
+        "central": 1.1,
+        "low": 0.8,
+        "high": 1.5,
+        "label": "modeled",
+        "source": "Directional estimate anchored to Microsoft fleet-average (0.27 L/kWh) and Microsoft's own qualitative framing of Phoenix as a high-WUE, high-priority-for-improvement region (23% YoY improvement disclosed FY25)"
+      },
+      "EWIF_offsite_L_per_kWh_seasonal_fallback": {
+        "central": 1.6,
+        "low": 0.8,
+        "high": 2.5,
+        "label": "speculative",
+        "source": "Coarse offline fallback only; hot-arid grids (e.g. ERCOT-adjacent) often carry significant thermoelectric baseload -- use live EWIF/grid-mix API instead when reachable"
+      }
+    },
+    "temperate": {
+      "example_locations": [
+        "Virginia",
+        "Iowa",
+        "most continental US datacenter clusters"
+      ],
+      "WUE_site_L_per_kWh": {
+        "central": 0.27,
+        "low": 0.2,
+        "high": 0.45,
+        "label": "modeled",
+        "source": "Microsoft FY25 fleet-wide global average WUE disclosure (0.27 L/kWh), applied as a proxy default for temperate/mixed-mode-cooling climates -- not a region-specific measurement"
+      },
+      "EWIF_offsite_L_per_kWh_seasonal_fallback": {
+        "central": 1.0,
+        "low": 0.5,
+        "high": 1.8,
+        "label": "speculative",
+        "source": "Coarse offline fallback only"
+      }
+    },
+    "cool_humid": {
+      "example_locations": [
+        "Dublin",
+        "Amsterdam",
+        "Nordic sites"
+      ],
+      "WUE_site_L_per_kWh": {
+        "central": 0.02,
+        "low": 0.005,
+        "high": 0.05,
+        "label": "modeled",
+        "source": "Directional estimate anchored to Microsoft disclosure that water is required less than 5% of the time in cooler regions such as Dublin and Amsterdam"
+      },
+      "EWIF_offsite_L_per_kWh_seasonal_fallback": {
+        "central": 0.3,
+        "low": 0.05,
+        "high": 0.8,
+        "label": "speculative",
+        "source": "Coarse offline fallback only; Nordic/Irish grids often carry substantial wind/hydro share with low EWIF, but this varies by year and hour"
+      }
+    },
+    "hot_humid": {
+      "example_locations": [
+        "Singapore",
+        "Southeast Asia"
+      ],
+      "WUE_site_L_per_kWh": {
+        "central": 0.6,
+        "low": 0.4,
+        "high": 0.8,
+        "label": "modeled",
+        "source": "Directional estimate anchored to Microsoft disclosure of up to 40% of hours requiring active water-cooling in hotter/humid regions"
+      },
+      "EWIF_offsite_L_per_kWh_seasonal_fallback": {
+        "central": 1.4,
+        "low": 0.7,
+        "high": 2.2,
+        "label": "speculative",
+        "source": "Coarse offline fallback only"
+      }
+    },
+    "_unverified_third_party_claim_do_not_use_as_coefficient": {
+      "note": "A third-party (non-Microsoft-primary) blog cites Microsoft Arizona at 1.52 L/kWh vs Singapore at 0.02 L/kWh. This pairing could not be corroborated against Microsoft's own published tables and is NOT used as a coefficient input. See METHODOLOGY.md 4.3 for full discussion.",
+      "source_flagged_as": "speculative/unverified secondary source"
+    }
+  },
+  "time_of_day_seasonal_modifiers": {
+    "$description": "Directional multiplier guidance ONLY (speculative) for adjusting WUE_site and EWIF_offsite when no live API is available. These are illustrative shape, not measured coefficients -- prefer live signals (WattTime, Electricity Maps, weather API wet-bulb temp) whenever reachable.",
+    "WUE_site_diurnal_multiplier": {
+      "overnight_02_06_local": {
+        "central": 0.6,
+        "label": "speculative",
+        "note": "lower wet-bulb temperature overnight in most climates reduces evaporative cooling water draw"
+      },
+      "midday_12_16_local": {
+        "central": 1.3,
+        "label": "speculative",
+        "note": "peak wet-bulb temperature window, highest evaporative cooling water draw"
+      },
+      "other_hours": {
+        "central": 1.0,
+        "label": "speculative"
+      }
+    },
+    "WUE_site_seasonal_multiplier": {
+      "winter": {
+        "central": 0.3,
+        "label": "speculative",
+        "note": "many facilities run near-zero water cooling below the economizer threshold (e.g. Microsoft's 29.4C/85F threshold) in winter"
+      },
+      "summer": {
+        "central": 1.6,
+        "label": "speculative",
+        "note": "wet-bulb temperatures most likely to exceed economizer thresholds"
+      },
+      "spring_fall": {
+        "central": 1.0,
+        "label": "speculative"
+      }
+    },
+    "EWIF_offsite_diurnal_multiplier": {
+      "solar_peak_10_16_local": {
+        "central": 0.7,
+        "label": "speculative",
+        "note": "higher solar/renewable share on many grids during daylight hours tends to lower marginal EWIF, but this is grid-specific and can invert on grids with heavy hydro/nuclear baseload instead"
+      },
+      "evening_peak_17_21_local": {
+        "central": 1.3,
+        "label": "speculative",
+        "note": "evening demand peak often met by dispatchable thermal generation with higher EWIF"
+      },
+      "other_hours": {
+        "central": 1.0,
+        "label": "speculative"
+      }
+    }
+  },
+  "routing_signal_notes": {
+    "$description": "Informational only -- NOT used as a numeric coefficient input. See METHODOLOGY.md section 3 for full discussion of why price-based routing is not treated as a proxy for footprint.",
+    "coupling_strength_assessment": "weak-to-moderate and multiply-attenuated; no public gateway currently routes on a carbon/energy signal",
+    "batch_api_discount_pct": {
+      "central": 50,
+      "label": "measured",
+      "source": "OpenAI Batch API / Anthropic Message Batches API discount structure"
+    },
+    "openrouter_default_routing_criteria": [
+      "price (inverse-square weighted)",
+      "provider outage history (last 30s)",
+      "latency/throughput percentile thresholds if set",
+      "tool-call support",
+      "context-length support"
+    ]
+  }
+}

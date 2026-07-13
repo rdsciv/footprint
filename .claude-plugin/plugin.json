@@ -1,0 +1,18 @@
+{
+  "name": "footprint",
+  "version": "0.2.0",
+  "description": "Energy, water, and carbon telemetry for your Claude Code sessions: a live statusline plus a /footprint command with what-if estimates, live grid carbon intensity, and honest uncertainty ranges.",
+  "author": {
+    "name": "footprint contributors"
+  },
+  "homepage": "https://github.com/REPLACE_OWNER/footprint",
+  "license": "MIT",
+  "keywords": [
+    "sustainability",
+    "energy",
+    "carbon",
+    "water",
+    "statusline",
+    "green-ai"
+  ]
+}

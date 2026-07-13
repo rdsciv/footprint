@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "python3 /Users/chilly/Projects/footprint/footprint_statusline.py"
+  }
+}
