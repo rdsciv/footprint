@@ -22,7 +22,7 @@ Most AI-footprint numbers you've seen are either marketing or outrage. The truth
 Requires Python 3 (stdlib only — no dependencies).
 
 ```bash
-git clone https://github.com/REPLACE_OWNER/footprint && cd footprint
+git clone https://github.com/rdsciv/footprint && cd footprint
 
 # statusline: add to .claude/settings.json in any project (or globally)
 { "statusLine": { "type": "command", "command": "python3 /path/to/footprint/footprint_statusline.py" } }

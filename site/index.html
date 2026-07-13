@@ -62,7 +62,7 @@ th{color:var(--muted);font-weight:500}
 Estimates with honest uncertainty ranges — every coefficient sourced, labeled
 <em>measured / modeled / speculative</em>, and versioned in
 <a href="../coefficients.json">coefficients.json</a>. Live in your Claude Code statusline via the
-<a href="https://github.com/REPLACE_OWNER/footprint">open-source repo</a>.</p>
+<a href="https://github.com/rdsciv/footprint">open-source repo</a>.</p>
 <p id="loadstate" class="note">loading coefficients…</p>
 
 <h2>1 · Estimate a workload</h2>
@@ -116,7 +116,7 @@ Decision guide: <a href="../docs/05-which-model-when.md">doc 05</a>.</p>
 
 <footer>
 Estimates, not measurements — directional by design. Methodology, limitations and every source:
-<a href="https://github.com/REPLACE_OWNER/footprint">github.com/REPLACE_OWNER/footprint</a>.
+<a href="https://github.com/rdsciv/footprint">github.com/rdsciv/footprint</a>.
 Palette: validated reference dataviz palette; charts carry direct labels and ranges.
 </footer>
 </main>
@@ -261,7 +261,7 @@ function shareCard(){
   if(!last) return;
   const t = `My AI workload estimate (${fmtTok(last.tk.total)} tokens, ${$("tier").value} tier): `+
     `⚡ ${fmtSig(last.e[0])} Wh · 💧 ~${fmtSig(last.w[0])} mL · 🌫 ${fmtSig(last.c[0])} gCO2e (loc-based). `+
-    `Ranges & methodology: github.com/REPLACE_OWNER/footprint`;
+    `Ranges & methodology: github.com/rdsciv/footprint`;
   navigator.clipboard.writeText(t).then(()=>{ $("share").textContent="Copied ✓"; setTimeout(()=>$("share").textContent="Copy result card",1500); });
 }
 
