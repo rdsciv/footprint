@@ -61,7 +61,7 @@ th{color:var(--muted);font-weight:500}
 <p>What does your AI usage actually cost in <strong>energy, water and carbon</strong>?
 Estimates with honest uncertainty ranges — every coefficient sourced, labeled
 <em>measured / modeled / speculative</em>, and versioned in
-<a href="../coefficients.json">coefficients.json</a>. Live in your Claude Code statusline via the
+<a href="../modelfootprint/coefficients.json">coefficients.json</a>. Live in your Claude Code statusline via the
 <a href="https://github.com/rdsciv/footprint">open-source repo</a>.</p>
 <p id="loadstate" class="note">loading coefficients…</p>
 
@@ -121,31 +121,15 @@ Palette: validated reference dataviz palette; charts carry direct labels and ran
 </footer>
 </main>
 <div class="tooltip" id="tip"></div>
+<script src="engine.js"></script>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-const BOUNDS = ["central","low","high"];
+const MF = window.MFEngine;
+const fmtSig = MF.fmtSig, fmtTok = MF.fmtTok;
 const PROFILES = {chat:[0.8,0,0.2], agent:[0.05,0.9,0.05], "out-heavy":[0.2,0,0.8]};
 const DUCK = [420,420,415,410,415,430,400,300,150,60,20,10,10,15,40,120,280,480,590,630,560,500,460,430];
 let C = null; // coefficients.json
-
-const fmtSig = (x,n=2)=>{ if(x===0) return "0";
-  const d = n-1-Math.floor(Math.log10(Math.abs(x)));
-  let y = Number(x.toFixed(Math.max(d,0)));
-  return d>0 ? y.toFixed(Math.max(d,0)) : String(Math.round(y)); };
-const fmtTok = n => n<1e3?String(n) : n<1e4?(n/1e3).toFixed(1)+"k" : n<1e6?Math.round(n/1e3)+"k" : (n/1e6).toFixed(1)+"M";
-
-function computeTier(tierName, tokens){
-  const t = C.model_tiers[tierName], pue = C.infrastructure_overhead.PUE_typical_hyperscale;
-  return BOUNDS.map(b => (tokens.in*t.e_in_Wh_per_1k_tok[b] + tokens.cache*t.e_cache_Wh_per_1k_tok[b]
-      + tokens.out*t.e_out_Wh_per_1k_tok[b]) / 1000 * pue[b]);
-}
-function waterCarbon(energy, regionKey, ciOverride){
-  const r = C.region_presets[regionKey];
-  const water = BOUNDS.map((b,i)=> energy[i]*(r.WUE_site_L_per_kWh[b]+r.EWIF_offsite_L_per_kWh_seasonal_fallback[b]));
-  const ci = ciOverride ?? C.carbon_intensity_accounting_note.google_2024_example_gCO2e_per_kWh.location_based;
-  return {water, carbon: energy.map(e=>e/1000*ci), ci};
-}
 function currentTokens(){
   const total = Math.round(Math.pow(10, +$("tokens").value));
   const [fi,fc,fo] = PROFILES[$("profile").value];
@@ -165,8 +149,8 @@ let last = null;
 function renderCalc(){
   const tk = currentTokens();
   $("toklabel").textContent = fmtTok(tk.total);
-  const e = computeTier($("tier").value, tk);
-  const {water:w, carbon:c, ci} = waterCarbon(e, $("region").value);
+  const res = MF.compute(C, $("tier").value, tk, $("region").value);
+  const e = res.energy, w = res.water, c = res.carbon, ci = res.ci;
   last = {e,w,c,tk,ci};
   const tile=(icon,name,v,unit,lo,hi)=>`<div class="tile"><div class="l">${icon} ${name}</div>
     <div class="v">${v}<span style="font-size:.8rem;font-weight:400"> ${unit}</span></div>
@@ -177,8 +161,9 @@ function renderCalc(){
     tile("🌫","carbon",fmtSig(c[0]),"gCO2e",fmtSig(c[1]),fmtSig(c[2]));
   $("equiv").textContent = equivalences(e[0],w[0],c[0]);
   $("basisnote").textContent = "Carbon basis: location-based static average "+ci+
-    " g/kWh (Google 2024 fleet disclosure). Split: "+fmtTok(tk.in)+" in / "+fmtTok(tk.cache)+
-    " cache / "+fmtTok(tk.out)+" out. Water includes off-site generation water (EWIF).";
+    " g/kWh (Google 2024 fleet proxy; range reflects regional/hourly grid spread). Split: "+
+    fmtTok(tk.in)+" in / "+fmtTok(tk.cache)+
+    " cache / "+fmtTok(tk.out)+" out. Water includes off-site generation water (EWIF); ranges are scenario envelopes, not confidence intervals.";
   renderDuck(); renderTiers();
 }
 
@@ -228,7 +213,7 @@ function renderTiers(){
   if(!last) return;
   const tiers = ["small","mid","frontier"];
   const cols = ["var(--seq250)","var(--seq450)","var(--seq650)"];
-  const data = tiers.map(t=>computeTier(t,last.tk));
+  const data = tiers.map(t=>MF.compute(C, t, last.tk, $("region").value).energy);
   const W=820,H=190,L=86,R=120,T=14,B=30,pw=W-L-R,rh=(H-T-B)/3,bar=20;
   const xmax = Math.max(...data.map(d=>d[2]))*1.05;
   const BX=v=>L+pw*v/xmax;
@@ -267,7 +252,7 @@ function shareCard(){
 
 async function init(){
   try{
-    const r = await fetch("../coefficients.json");
+    const r = await fetch("../modelfootprint/coefficients.json");
     if(!r.ok) throw new Error("HTTP "+r.status);
     C = await r.json();
   }catch(err){

@@ -8,7 +8,7 @@ A kilowatt-hour is not a kilowatt-hour. Depending on what generates it, the same
 
 ## The generation ladder
 
-Lifecycle carbon intensity (construction + fuel + operation + decommissioning), median figures from the IPCC AR5 harmonization with NREL cross-checks — these are the `generation_carbon_intensity` entries in [`coefficients.json`](../coefficients.json):
+Lifecycle carbon intensity (construction + fuel + operation + decommissioning), median figures from the IPCC AR5 harmonization with NREL cross-checks — these are the `generation_carbon_intensity` entries in [`coefficients.json`](../modelfootprint/coefficients.json):
 
 | source | gCO₂e/kWh (median) | range |
 |---|---|---|

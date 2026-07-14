@@ -2,14 +2,26 @@
 energy/water/carbon equations from METHODOLOGY.md.
 
 Every coefficient comes from coefficients.json (path: FOOTPRINT_COEFFS env
-var, default at the repo root alongside this package) — nothing numeric is
-hardcoded except unit conversions.
+var, default: bundled with this package) — nothing numeric is hardcoded
+except unit conversions.
 
-Display rules (METHODOLOGY.md §5.2): energy 2 sig figs with [low–high] range;
-water 1–2 sig figs with "~" prefix; carbon always tagged with its accounting
-basis; unknown model tier -> "?" marker. Missing transcript -> "–"
-placeholders; unreadable coefficients -> explicit error glyph, never a
-fabricated 0.0.
+Accounting boundaries (METHODOLOGY.md §2.2/§1.2, v0.3.0):
+  - Tier coefficients are interpreted as IT-equipment (node) energy per
+    token. PUE converts IT energy to facility energy.
+  - water_L = energy_IT_kWh × WUE_site + energy_facility_kWh × EWIF_grid
+    (WUE is defined per IT kWh by its Microsoft source; EWIF applies to all
+    electricity drawn from the grid, i.e. facility energy).
+  - carbon_g = energy_facility_kWh × CI_grid.
+
+Uncertainty semantics (§5.1): the [low–high] figures are a SCENARIO ENVELOPE
+(every factor at its low/high bound simultaneously), not an independent
+confidence interval. Full precision is carried internally; rounding happens
+only at display.
+
+Display rules (§5.2): energy 2 sig figs with [low–high] range; water 1–2 sig
+figs with "~" prefix; carbon always tagged with its accounting basis; unknown
+model tier -> "?" marker. Missing transcript -> "–" placeholders; unreadable
+coefficients -> explicit error glyph, never a fabricated 0.0.
 """
 import json
 import math
@@ -18,27 +30,124 @@ import os
 PLACEHOLDER_TOKENS = "– in · – cache · – out"
 PLACEHOLDER_LINE = "⚡ – Wh 💧 – mL 🌫 – gCO2e (loc-based) | " + PLACEHOLDER_TOKENS
 BOUNDS = ("central", "low", "high")
+SUPPORTED_SCHEMA_MAJOR = 0
+
+_ENERGY_KEYS = ("e_in_Wh_per_1k_tok", "e_cache_Wh_per_1k_tok", "e_out_Wh_per_1k_tok")
+
+
+def _finite(v):
+    """Return v as a finite float, or None."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return f if math.isfinite(f) else None
+
+
+def _check_range(d, where):
+    if not isinstance(d, dict):
+        raise ValueError("%s: expected {central,low,high} dict" % where)
+    vals = [_finite(d.get(b)) for b in BOUNDS]
+    if any(v is None for v in vals):
+        raise ValueError("%s: central/low/high must be finite numbers" % where)
+    c, lo, hi = vals
+    if not (lo <= c <= hi) or lo < 0:
+        raise ValueError("%s: requires 0 <= low <= central <= high" % where)
+
+
+def validate_coefficients(coeffs):
+    """Structural validation of coefficients.json. Raises ValueError on any
+    shape/type/ordering problem so callers fail closed to the documented
+    error display instead of computing with garbage."""
+    if not isinstance(coeffs, dict):
+        raise ValueError("coefficients: not a JSON object")
+    ver = str(coeffs.get("$schema_version", ""))
+    major = ver.split(".")[0] if ver else ""
+    if not major.isdigit() or int(major) != SUPPORTED_SCHEMA_MAJOR:
+        raise ValueError(
+            "coefficients: schema version %r not supported (engine supports major %d)"
+            % (ver, SUPPORTED_SCHEMA_MAJOR)
+        )
+    tiers = coeffs.get("model_tiers")
+    if not isinstance(tiers, dict) or not tiers:
+        raise ValueError("coefficients: model_tiers missing")
+    for name, tier in tiers.items():
+        if name.startswith(("$", "_")):
+            continue
+        for key in _ENERGY_KEYS:
+            _check_range(tier.get(key), "model_tiers.%s.%s" % (name, key))
+    if not isinstance(coeffs.get("model_tier_lookup"), dict):
+        raise ValueError("coefficients: model_tier_lookup missing")
+    _check_range(
+        coeffs.get("infrastructure_overhead", {}).get("PUE_typical_hyperscale"),
+        "infrastructure_overhead.PUE_typical_hyperscale",
+    )
+    regions = coeffs.get("region_presets")
+    if not isinstance(regions, dict):
+        raise ValueError("coefficients: region_presets missing")
+    for name, reg in regions.items():
+        if name.startswith(("$", "_")):
+            continue
+        _check_range(reg.get("WUE_site_L_per_kWh"), "region_presets.%s.WUE" % name)
+        _check_range(
+            reg.get("EWIF_offsite_L_per_kWh_seasonal_fallback"),
+            "region_presets.%s.EWIF" % name,
+        )
+    note = coeffs.get("carbon_intensity_accounting_note", {})
+    lb = note.get("google_2024_example_gCO2e_per_kWh", {}).get("location_based")
+    if _finite(lb) is None:
+        raise ValueError("coefficients: location_based CI missing")
+    return coeffs
 
 
 def load_coefficients():
     path = os.environ.get("FOOTPRINT_COEFFS") or os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "coefficients.json",
+        os.path.dirname(os.path.abspath(__file__)), "coefficients.json"
     )
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return validate_coefficients(json.load(f))
+
+
+def resolve_region(coeffs, region=None, site_region=None):
+    """One resolution rule everywhere: explicit arg > FOOTPRINT_REGION >
+    the configured site's climate class > temperate."""
+    candidate = (
+        region
+        or os.environ.get("FOOTPRINT_REGION")
+        or site_region
+        or "temperate"
+    )
+    presets = coeffs.get("region_presets", {})
+    if candidate not in presets or candidate.startswith(("_", "$")):
+        candidate = "temperate"
+    return candidate
+
+
+def _key_matches(key, model_id):
+    """True when `key` appears in model_id bounded by non-alphanumerics (or
+    string edges) — 'o1' matches 'o1-preview' but not 'model-o12'."""
+    start = 0
+    while True:
+        i = model_id.find(key, start)
+        if i < 0:
+            return False
+        before_ok = i == 0 or not model_id[i - 1].isalnum()
+        j = i + len(key)
+        after_ok = j == len(model_id) or not model_id[j].isalnum()
+        if before_ok and after_ok:
+            return True
+        start = i + 1
 
 
 def tier_for(model_id, lookup):
-    """Substring-match model id against model_tier_lookup; longest match wins
-    (so 'gpt-5-nano' resolves to its own entry, not 'gpt-5').
+    """Anchored substring match against model_tier_lookup; longest match wins
+    (so 'gpt-4o-mini' resolves to its own entry, not 'gpt-4o').
     Returns (tier_name, known)."""
     mid = (model_id or "").lower()
     best_key = None
     for key, tier in lookup.items():
         if key.startswith(("_", "$")):
             continue
-        if key in mid and (best_key is None or len(key) > len(best_key[0])):
+        if _key_matches(key, mid) and (best_key is None or len(key) > len(best_key[0])):
             best_key = (key, tier)
     if best_key:
         return best_key[1], True
@@ -72,7 +181,7 @@ def parse_transcript(path):
 
             def tok(key):
                 v = u.get(key)
-                return v if isinstance(v, int) and v >= 0 else 0
+                return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
 
             # Cache writes are fully computed prefill: they belong in tok_in
             # at e_in, NOT in tok_cache (only cache *reads* get e_cache).
@@ -86,79 +195,111 @@ def parse_transcript(path):
     return entries
 
 
-def compute(entries, coeffs, region_key, live=None):
-    """Core equations from coefficients.json $core_equations:
-      energy_Wh = (tok_in*e_in + tok_cache*e_cache + tok_out*e_out) * PUE
-                  (coefficients are per 1K tokens)
-      water_L   = energy_kWh * (WUE_site + EWIF_grid)
-      carbon_g  = energy_kWh * CI_grid   (location-based, §1.4)
-    Range propagation (§5.1): low = product of low bounds, high = product of
-    high bounds. Full precision carried; rounding happens only at display.
+def _entry_energy(tier, tok_in, tok_cache, tok_out, bound):
+    return (
+        tok_in * tier["e_in_Wh_per_1k_tok"][bound]
+        + tok_cache * tier["e_cache_Wh_per_1k_tok"][bound]
+        + tok_out * tier["e_out_Wh_per_1k_tok"][bound]
+    ) / 1000.0
 
-    `live` (optional): a fresh live-signal snapshot dict (see live.py). When
-    it carries ci_g_per_kwh / wue_site_L_per_kWh, those replace the static
-    CI / WUE_site central values; the energy-side range still propagates, and
-    the result is annotated so the display can label the basis honestly.
+
+def _ci_bounds(coeffs, live_ci):
+    """CI as (central, low, high). Live CI carries a MODELED ±25%
+    forecast/measurement band; static CI uses the location-based hourly/
+    regional spread from coefficients when present, else the point value."""
+    if live_ci is not None:
+        return (live_ci, live_ci * 0.75, live_ci * 1.25)
+    note = coeffs["carbon_intensity_accounting_note"]
+    central = note["google_2024_example_gCO2e_per_kWh"]["location_based"]
+    rng = note.get("location_based_hourly_range_gCO2e_per_kWh")
+    if isinstance(rng, dict):
+        lo, hi = _finite(rng.get("low")), _finite(rng.get("high"))
+        if lo is not None and hi is not None and lo <= central <= hi:
+            return (central, lo, hi)
+    return (central, central, central)
+
+
+def compute(entries, coeffs, region_key, live=None):
+    """Core equations (METHODOLOGY.md v0.3.0, coefficients $core_equations):
+      energy_IT_Wh       = tok_in*e_in + tok_cache*e_cache + tok_out*e_out
+                           (coefficients are per 1K tokens, IT/node boundary)
+      energy_facility_Wh = energy_IT_Wh * PUE
+      water_L            = energy_IT_kWh * WUE_site
+                           + energy_facility_kWh * EWIF_grid
+      carbon_g           = energy_facility_kWh * CI_grid  (location-based §1.4)
+    [low–high] is a scenario envelope: every factor at its bound at once
+    (§5.1). Full precision carried; rounding only at display.
+
+    Unknown models take the mid tier's central estimate but an envelope that
+    spans small-tier lows to frontier-tier highs — the promised wider band.
+
+    `live` (optional): a fresh live-signal snapshot dict (see live.py).
+    ci_g_per_kwh / wue_site_L_per_kWh, when present and finite, replace the
+    static central values; the result is annotated so the display can label
+    the basis honestly. Non-finite live values are ignored, never propagated.
     """
     tiers = coeffs["model_tiers"]
     lookup = coeffs["model_tier_lookup"]
     totals = {"in": 0, "cache": 0, "out": 0}
     unknown_model = False
-    pre_pue = [0.0, 0.0, 0.0]  # Wh at central/low/high, before PUE
+    it_wh = [0.0, 0.0, 0.0]  # IT-boundary Wh at central/low/high, before PUE
+    unknown_low_tier = tiers.get("small")
+    unknown_high_tier = tiers.get("frontier")
     for tok_in, tok_cache, tok_out, model in entries.values():
         totals["in"] += tok_in
         totals["cache"] += tok_cache
         totals["out"] += tok_out
         tier_name, known = tier_for(model, lookup)
-        if not known and (tok_in or tok_cache or tok_out):
-            unknown_model = True
         t = tiers[tier_name]
+        if known or unknown_low_tier is None or unknown_high_tier is None:
+            per_bound = (t, t, t)
+        else:
+            # Unknown model: central at the default tier, envelope across the
+            # full small-low..frontier-high tier spread.
+            if tok_in or tok_cache or tok_out:
+                unknown_model = True
+            per_bound = (t, unknown_low_tier, unknown_high_tier)
         for i, b in enumerate(BOUNDS):
-            pre_pue[i] += (
-                tok_in * t["e_in_Wh_per_1k_tok"][b]
-                + tok_cache * t["e_cache_Wh_per_1k_tok"][b]
-                + tok_out * t["e_out_Wh_per_1k_tok"][b]
-            ) / 1000.0
+            it_wh[i] += _entry_energy(per_bound[i], tok_in, tok_cache, tok_out, b)
 
     pue = coeffs["infrastructure_overhead"]["PUE_typical_hyperscale"]
-    energy_Wh = tuple(pre_pue[i] * pue[b] for i, b in enumerate(BOUNDS))
+    energy_Wh = tuple(it_wh[i] * pue[b] for i, b in enumerate(BOUNDS))
 
     region = coeffs["region_presets"][region_key]
     wue = region["WUE_site_L_per_kWh"]
     ewif = region["EWIF_offsite_L_per_kWh_seasonal_fallback"]
 
-    live_wue = live.get("wue_site_L_per_kWh") if live else None
-    live_ci = live.get("ci_g_per_kwh") if live else None
+    live_wue = _finite(live.get("wue_site_L_per_kWh")) if live else None
+    live_ci = _finite(live.get("ci_g_per_kwh")) if live else None
 
+    # Water: WUE applies to IT energy (its Microsoft source defines L per IT
+    # kWh); EWIF applies to all grid electricity, i.e. facility energy.
     if live_wue is not None:
-        # Live wet-bulb-driven WUE_site is a point estimate: substitute it for
-        # the central value, keep the static low/high spread for the EWIF term
-        # and the energy range. Never narrower than the energy range allows.
+        # Live WUE is a point estimate for the central value; the envelope
+        # never narrows below the static preset spread.
         water_mL = (
-            energy_Wh[0] * (live_wue + ewif["central"]),
-            energy_Wh[1] * (min(live_wue, wue["low"]) + ewif["low"]),
-            energy_Wh[2] * (max(live_wue, wue["high"]) + ewif["high"]),
+            it_wh[0] * live_wue + energy_Wh[0] * ewif["central"],
+            it_wh[1] * min(live_wue, wue["low"]) + energy_Wh[1] * ewif["low"],
+            it_wh[2] * max(live_wue, wue["high"]) + energy_Wh[2] * ewif["high"],
         )
     else:
-        # energy_kWh * (L/kWh) * 1000 mL/L == energy_Wh * (L/kWh) numerically
+        # kWh * (L/kWh) * 1000 mL/L == Wh * (L/kWh) numerically
         water_mL = tuple(
-            energy_Wh[i] * (wue[b] + ewif[b]) for i, b in enumerate(BOUNDS)
+            it_wh[i] * wue[b] + energy_Wh[i] * ewif[b] for i, b in enumerate(BOUNDS)
         )
 
-    static_ci = coeffs["carbon_intensity_accounting_note"][
-        "google_2024_example_gCO2e_per_kWh"
-    ]["location_based"]
-    ci = live_ci if live_ci is not None else static_ci
-    carbon_g = tuple(e / 1000.0 * ci for e in energy_Wh)
+    ci = _ci_bounds(coeffs, live_ci)
+    carbon_g = tuple(energy_Wh[i] / 1000.0 * ci[i] for i in range(3))
 
     return {
         "tokens": totals,
         "energy_Wh": energy_Wh,
+        "energy_IT_Wh": tuple(it_wh),
         "water_mL": water_mL,
         "carbon_g": carbon_g,
         "unknown_model": unknown_model,
         "ci_basis": "live-grid" if live_ci is not None else "loc-based",
-        "ci_g_per_kwh": ci,
+        "ci_g_per_kwh": ci[0],
         "wue_basis": "live-weather" if live_wue is not None else "preset",
     }
 

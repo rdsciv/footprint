@@ -1,6 +1,6 @@
 {
   "statusLine": {
     "type": "command",
-    "command": "python3 /Users/chilly/Projects/footprint/footprint_statusline.py"
+    "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/footprint_statusline.py\""
   }
 }

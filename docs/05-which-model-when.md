@@ -6,7 +6,7 @@ You control three levers over your AI footprint, in descending order of what mos
 
 ## Lever 1: Which model (the 6× you control every day)
 
-Per-token energy scales hard with model tier. From [`coefficients.json`](../coefficients.json) (central estimates, output tokens, ×PUE 1.2):
+Per-token energy scales hard with model tier. From [`coefficients.json`](../modelfootprint/coefficients.json) (central estimates, output tokens, ×PUE 1.2):
 
 | tier | class examples | Wh per 1k output tok | vs small |
 |---|---|---|---|
@@ -59,4 +59,4 @@ Is the task genuinely hard (deep reasoning, long agent horizon)?
 
 ## Sources
 
-Tier coefficients and their derivation: [`coefficients.json`](../coefficients.json), [METHODOLOGY.md](../METHODOLOGY.md) §2; measured anchors: Google [arXiv:2508.15734](https://arxiv.org/abs/2508.15734), Mistral audited LCA (2025), URI GPT-5 estimates; grid timing: [doc 02](./02-duck-curve-and-grid.md); diesel/fuel mix: [doc 03](./03-fuel-mix-and-diesel-backup.md); water tension: [doc 04](./04-water.md); batch discounts: OpenAI/Anthropic public pricing.
+Tier coefficients and their derivation: [`coefficients.json`](../modelfootprint/coefficients.json), [METHODOLOGY.md](../METHODOLOGY.md) §2; measured anchors: Google [arXiv:2508.15734](https://arxiv.org/abs/2508.15734), Mistral audited LCA (2025), URI GPT-5 estimates; grid timing: [doc 02](./02-duck-curve-and-grid.md); diesel/fuel mix: [doc 03](./03-fuel-mix-and-diesel-backup.md); water tension: [doc 04](./04-water.md); batch discounts: OpenAI/Anthropic public pricing.

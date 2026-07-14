@@ -1,189 +1,438 @@
 #!/usr/bin/env python3
-"""Verification suite for the modelfootprint package additions (v0.2):
-what-if parsing, live-cache handling, weather->WUE model, recommendations,
-tier lookup refresh, and the Altman 0.34 Wh/query sanity anchor (non-blocking).
+"""Verification suite for the modelfootprint package — stdlib unittest,
+runnable directly (`python3 test_modelfootprint.py`) or via pytest.
 
-Stdlib only, run directly: python3 test_modelfootprint.py
-No test here touches the network.
+Covers: what-if parsing, live-cache handling (fingerprint, staleness,
+corruption, carry-forward, atomic writes), the two-signal weather model,
+live overrides in compute, recommendations, tier lookup, coefficient
+validation, CLI end-to-end behavior, the JS/Python golden cross-check, and
+the Altman 0.34 Wh/query sanity anchor (non-blocking).
+
+No test here touches the network. All FOOTPRINT_* env vars are scrubbed and
+temp state is cleaned up.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+
+for _k in [k for k in os.environ if k.startswith("FOOTPRINT_")]:
+    del os.environ[_k]
+
 TMP = tempfile.mkdtemp(prefix="modelfootprint_test_")
 os.environ["FOOTPRINT_CACHE"] = os.path.join(TMP, "live.json")  # isolate before imports
 
 from modelfootprint import engine, live, recommend, report  # noqa: E402
 
 COEFFS = engine.load_coefficients()
-passed = 0
+FP = live.config_fingerprint()  # fingerprint of the scrubbed test configuration
 
 
-def check(name, cond, detail=""):
-    global passed
-    assert cond, "FAIL %s %s" % (name, detail)
-    passed += 1
-    print("PASS %s %s" % (name, detail))
-
-
-def write_cache(snap):
-    with open(os.environ["FOOTPRINT_CACHE"], "w") as f:
+def write_cache(snap, path=None):
+    snap.setdefault("config_fp", FP)
+    with open(path or os.environ["FOOTPRINT_CACHE"], "w") as f:
         json.dump(snap, f)
 
 
-# ---------------------------------------------------------------------------
-# 1. What-if parsing
-# ---------------------------------------------------------------------------
-check("1a '500k' -> 500000", report.parse_token_count("500k") == 500000)
-check("1b '2M' -> 2000000", report.parse_token_count("2M") == 2000000)
-check("1c '1200' -> 1200", report.parse_token_count("1200") == 1200)
-check("1d '1.5m' -> 1500000", report.parse_token_count("1.5m") == 1500000)
-check("1e garbage -> None", report.parse_token_count("lots") is None)
+def scrubbed_env(extra=None):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("FOOTPRINT_")}
+    env["FOOTPRINT_LIVE"] = "0"
+    env["PYTHONPATH"] = HERE
+    if extra:
+        env.update(extra)
+    return env
 
-e = report.whatif_entries("opus", 100000, "chat")
-tin, tcache, tout, model = e["whatif"]
-check("1f chat profile 80/0/20", (tin, tcache, tout) == (80000, 0, 20000), repr(e))
-e = report.whatif_entries("haiku", 0, explicit={"in": 10000, "cache": 50000, "out": 2000})
-check("1g explicit split honored", e["whatif"][:3] == (10000, 50000, 2000))
-e = report.whatif_entries("sonnet", 1000000, "agent")
-tin, tcache, tout, _ = e["whatif"]
-check("1h agent profile sums exactly to total", tin + tcache + tout == 1000000)
 
-# ---------------------------------------------------------------------------
-# 2. Live cache: missing, fresh, stale, too-old; never a network call.
-# ---------------------------------------------------------------------------
-check("2a missing cache -> None", live.read_cached() is None)
-write_cache({"fetched_at": time.time(), "ci_g_per_kwh": 100.0, "zone": "TEST"})
-snap = live.read_cached()
-check("2b fresh cache read", snap is not None and snap["ci_g_per_kwh"] == 100.0)
-check("2c fresh cache not stale", snap["stale"] is False)
-write_cache({"fetched_at": time.time() - 2 * 3600, "ci_g_per_kwh": 100.0})
-snap = live.read_cached()
-check("2d 2h-old cache usable but flagged stale", snap is not None and snap["stale"] is True)
-write_cache({"fetched_at": time.time() - 4 * 3600, "ci_g_per_kwh": 100.0})
-check("2e 4h-old cache -> None (beyond MAX_AGE)", live.read_cached() is None)
-write_cache({"fetched_at": "corrupt"})
-check("2f corrupt fetched_at -> None", live.read_cached() is None)
-with open(os.environ["FOOTPRINT_CACHE"], "w") as f:
-    f.write("{not json")
-check("2g corrupt json -> None", live.read_cached() is None)
+import atexit
 
-# ---------------------------------------------------------------------------
-# 3. Live overrides in compute(): CI substitution exact, energy unchanged,
-#    fallback identical to static when live is None.
-# ---------------------------------------------------------------------------
-entries = {"m": (10000, 50000, 2000, "claude-sonnet-5")}
-static = engine.compute(entries, COEFFS, "temperate")
-lively = engine.compute(entries, COEFFS, "temperate", live={"ci_g_per_kwh": 100.0})
-check("3a energy identical with live CI", lively["energy_Wh"] == static["energy_Wh"])
-# 4.68 Wh * 100 g/kWh / 1000 = 0.468 g
-check("3b live carbon central == 0.468 exactly", abs(lively["carbon_g"][0] - 0.468) < 1e-12, repr(lively["carbon_g"]))
-check("3c live basis labeled", lively["ci_basis"] == "live-grid" and static["ci_basis"] == "loc-based")
-wet = engine.compute(entries, COEFFS, "temperate", live={"wue_site_L_per_kWh": 0.40})
-# central water = 4.68 * (0.40 + 1.0 EWIF) = 6.552
-check("3d live WUE central water == 6.552", abs(wet["water_mL"][0] - 6.552) < 1e-12, repr(wet["water_mL"]))
-check("3e live WUE range >= static envelope",
-      wet["water_mL"][1] <= static["water_mL"][1] + 1e-12 and wet["water_mL"][2] >= static["water_mL"][2] - 1e-12)
-check("3f render tags live grid", "(live-grid 100g)" in engine.render(lively))
-check("3g render tags static", "(loc-based)" in engine.render(static))
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 
-# ---------------------------------------------------------------------------
-# 4. Weather model: Stull wet-bulb sanity + economizer ramp bounds.
-# ---------------------------------------------------------------------------
-wb = live.wet_bulb_stull(20.0, 50.0)
-check("4a Stull(20C, 50%) ~= 13.7C", abs(wb - 13.7) < 0.3, "%.2f" % wb)
-wue_preset = COEFFS["region_presets"]["temperate"]["WUE_site_L_per_kWh"]
-check("4b cool day -> preset low", live.wue_from_weather(10.0, wue_preset) == wue_preset["low"])
-check("4c hot day -> preset high", live.wue_from_weather(35.0, wue_preset) == wue_preset["high"])
-mid_c = live.wue_from_weather(29.4 - 3.0, wue_preset)
-check("4d mid-ramp strictly between bounds", wue_preset["low"] < mid_c < wue_preset["high"], "%r" % mid_c)
 
-# ---------------------------------------------------------------------------
-# 5. Recommendations
-# ---------------------------------------------------------------------------
-fc = [{"t": "T%02d" % h, "ci": ci} for h, ci in enumerate([400, 300, 200, 100, 50, 80, 300, 450])]
-win = recommend.best_window({"ci_g_per_kwh": 400.0, "ci_forecast": fc})
-check("5a best window found at min", win["best_ci"] == 50 and win["best_t"] == "T04")
-check("5b ratio 8x", abs(win["ratio"] - 8.0) < 1e-9)
-lines = recommend.when_advice({"ci_g_per_kwh": 400.0, "ci_forecast": fc}, COEFFS)
-check("5c defer advice fires", any("deferring" in s for s in lines), repr(lines))
-lines = recommend.when_advice(None, COEFFS)
-check("5d no live -> static advice labeled SPECULATIVE", any("SPECULATIVE" in s for s in lines), repr(lines))
-lines = recommend.when_advice({"moer_percentile": 90.0}, COEFFS)
-check("5e WattTime percentile never presented as g/kWh", any("not g/kWh" in s for s in lines), repr(lines))
+class Test1WhatIfParsing(unittest.TestCase):
+    def test_token_counts(self):
+        self.assertEqual(report.parse_token_count("500k"), 500000)
+        self.assertEqual(report.parse_token_count("2M"), 2000000)
+        self.assertEqual(report.parse_token_count("1200"), 1200)
+        self.assertEqual(report.parse_token_count("1.5m"), 1500000)
+        self.assertIsNone(report.parse_token_count("lots"))
 
-res = engine.compute({"m": (10000, 200000, 5000, "claude-fable-5")}, COEFFS, "temperate")
-lines = recommend.which_advice(res, COEFFS)
-check("5f small-tier suggestion with % saving", any("small-tier" in s and "%" in s for s in lines), repr(lines))
-check("5g cache-share note (93% cache)", any("cache reads" in s for s in lines), repr(lines))
+    def test_profiles_and_explicit_splits(self):
+        e = report.whatif_entries("opus", 100000, "chat")
+        self.assertEqual(e["whatif"][:3], (80000, 0, 20000))
+        e = report.whatif_entries("haiku", 0, explicit={"in": 10000, "cache": 50000, "out": 2000})
+        self.assertEqual(e["whatif"][:3], (10000, 50000, 2000))
+        e = report.whatif_entries("sonnet", 1000000, "agent")
+        self.assertEqual(sum(e["whatif"][:3]), 1000000)
 
-# ---------------------------------------------------------------------------
-# 6. Tier lookup refresh
-# ---------------------------------------------------------------------------
-lk = COEFFS["model_tier_lookup"]
-for mid_id, want in [
-    ("claude-fable-5", "frontier"),
-    ("claude-mythos-5", "frontier"),
-    ("gemini-2.5-flash", "small"),
-    ("gemini-2.5-pro", "frontier"),
-    ("gemini-3-flash-preview", "small"),
-    ("deepseek-v4", "mid"),
-    ("grok-4-1212", "frontier"),
-]:
-    tier, known = engine.tier_for(mid_id, lk)
-    check("6 %s -> %s" % (mid_id, want), known and tier == want, "got %s known=%s" % (tier, known))
 
-# ---------------------------------------------------------------------------
-# 7. End-to-end CLI (subprocess, FOOTPRINT_LIVE isolation, no network)
-# ---------------------------------------------------------------------------
-env = dict(os.environ, FOOTPRINT_LIVE="0", PYTHONPATH=HERE)
-r = subprocess.run([sys.executable, "-m", "modelfootprint", "whatif", "opus", "500k"],
-                   capture_output=True, text=True, env=env, cwd=TMP)
-check("7a whatif exit 0", r.returncode == 0, r.stderr)
-check("7b whatif shows range + basis label", "low" in r.stdout and "location-based" in r.stdout, r.stdout[:200])
-check("7c whatif tier table present", "← this estimate" in r.stdout)
-r = subprocess.run([sys.executable, "-m", "modelfootprint", "whatif", "opus", "junk"],
-                   capture_output=True, text=True, env=env, cwd=TMP)
-check("7d unparseable tokens -> warning, exit 1, no invented numbers",
-      r.returncode == 1 and "could not parse" in r.stdout and "Wh" not in r.stdout, r.stdout)
-# report with no transcript for that cwd
-r = subprocess.run([sys.executable, "-m", "modelfootprint", "report"],
-                   capture_output=True, text=True, env=env, cwd=TMP)
-check("7e no transcript -> honest empty report", "No transcript found" in r.stdout, r.stdout[:200])
+class Test2LiveCache(unittest.TestCase):
+    def setUp(self):
+        try:
+            os.unlink(os.environ["FOOTPRINT_CACHE"])
+        except OSError:
+            pass
 
-# statusline with fresh synthetic cache -> live tag; env cache is isolated
-write_cache({"fetched_at": time.time(), "ci_g_per_kwh": 250.0, "zone": "TEST"})
-tpath = os.path.join(TMP, "t.jsonl")
-with open(tpath, "w") as f:
-    f.write(json.dumps({"type": "assistant", "message": {"id": "m1", "model": "claude-sonnet-5",
-            "usage": {"input_tokens": 10000, "cache_creation_input_tokens": 0,
-                      "cache_read_input_tokens": 50000, "output_tokens": 2000}}}) + "\n")
-stdin = json.dumps({"transcript_path": tpath, "session_id": "x"})
-r = subprocess.run([sys.executable, os.path.join(HERE, "footprint_statusline.py")],
-                   input=stdin, capture_output=True, text=True, env=dict(os.environ))
-check("7f statusline uses fresh cache: live-grid tag + 1.2 gCO2e (4.68Wh*250g/kWh)",
-      "(live-grid 250g)" in r.stdout and "🌫 1.2 gCO2e" in r.stdout, r.stdout)
-write_cache({"fetched_at": time.time() - 2 * 3600, "ci_g_per_kwh": 250.0, "zone": "TEST"})
-r = subprocess.run([sys.executable, os.path.join(HERE, "footprint_statusline.py")],
-                   input=stdin, capture_output=True, text=True, env=dict(os.environ))
-check("7g statusline ignores stale cache -> loc-based", "(loc-based)" in r.stdout, r.stdout)
+    def test_missing_cache(self):
+        self.assertIsNone(live.read_cached())
 
-# ---------------------------------------------------------------------------
-# 8. Altman anchor (NON-BLOCKING sanity check, per CLOUD_CONTEXT.md):
-#    a cache-light, assistant-scale 1k-token chat on the mid tier should land
-#    within ~5x of the public ~0.34 Wh/query anchor. Directional only.
-# ---------------------------------------------------------------------------
-e = report.whatif_entries("claude-sonnet-5", 1000, "chat")
-res = engine.compute(e, COEFFS, "temperate")
-wh = res["energy_Wh"][0]
-if 0.34 / 5 <= wh <= 0.34 * 5:
-    check("8 Altman 0.34 Wh/query anchor (non-blocking)", True, "mid-tier 1k chat = %.3f Wh" % wh)
-else:
-    print("NOTE (non-blocking): mid-tier 1k-token chat = %.3f Wh vs 0.34 Wh anchor — review tiers" % wh)
+    def test_fresh_cache(self):
+        write_cache({"fetched_at": time.time(), "ci_g_per_kwh": 100.0, "zone": "TEST"})
+        snap = live.read_cached()
+        self.assertIsNotNone(snap)
+        self.assertEqual(snap["ci_g_per_kwh"], 100.0)
+        self.assertFalse(snap["stale"])
 
-print("\nALL %d CHECKS PASSED" % passed)
+    def test_stale_flag_and_max_age(self):
+        write_cache({"fetched_at": time.time() - 2 * 3600, "ci_g_per_kwh": 100.0})
+        snap = live.read_cached()
+        self.assertIsNotNone(snap)
+        self.assertTrue(snap["stale"])
+        write_cache({"fetched_at": time.time() - 4 * 3600, "ci_g_per_kwh": 100.0})
+        self.assertIsNone(live.read_cached())
+
+    def test_corruption(self):
+        write_cache({"fetched_at": "corrupt"})
+        self.assertIsNone(live.read_cached())
+        with open(os.environ["FOOTPRINT_CACHE"], "w") as f:
+            f.write("{not json")
+        self.assertIsNone(live.read_cached())
+
+    def test_config_fingerprint_invalidates(self):
+        """A cache written under one configuration is never served under
+        another (the Virginia-cache-after-switching-to-Oregon bug)."""
+        write_cache({"fetched_at": time.time(), "ci_g_per_kwh": 100.0})
+        self.assertIsNotNone(live.read_cached())
+        os.environ["FOOTPRINT_SITE"] = "oregon"
+        try:
+            self.assertIsNone(live.read_cached(),
+                              "cache from a different config must be invisible")
+        finally:
+            del os.environ["FOOTPRINT_SITE"]
+        self.assertIsNotNone(live.read_cached(), "restored config sees it again")
+
+    def test_nonfinite_values_scrubbed(self):
+        write_cache({"fetched_at": time.time(), "ci_g_per_kwh": float("nan"),
+                     "wue_site_L_per_kWh": "0.4", "moer_percentile": float("inf")})
+        snap = live.read_cached()
+        self.assertIsNotNone(snap)
+        self.assertNotIn("ci_g_per_kwh", snap)
+        self.assertNotIn("wue_site_L_per_kWh", snap)
+        self.assertNotIn("moer_percentile", snap)
+
+    def test_atomic_write_bare_filename(self):
+        """FOOTPRINT_CACHE with no directory component must not crash on
+        os.makedirs('')."""
+        old_cwd = os.getcwd()
+        os.chdir(TMP)
+        try:
+            errors = []
+            live._write_cache("bare_cache.json", {"fetched_at": time.time(), "config_fp": FP}, errors)
+            self.assertEqual(errors, [])
+            self.assertTrue(os.path.isfile("bare_cache.json"))
+        finally:
+            os.chdir(old_cwd)
+
+    def test_refresh_unconfigured_records_errors_and_ok(self):
+        snap = live.refresh(COEFFS, force=True)
+        self.assertTrue(snap["ok"], "nothing configured -> nothing failed")
+        self.assertTrue(any("FOOTPRINT_EM_TOKEN" in e for e in snap["errors"]))
+
+    def test_watttime_requires_region(self):
+        os.environ["FOOTPRINT_WT_USER"] = "u"
+        os.environ["FOOTPRINT_WT_PASS"] = "p"
+        try:
+            snap = live.refresh(COEFFS, force=True)
+            self.assertTrue(any("FOOTPRINT_WT_REGION" in e for e in snap["errors"]),
+                            snap["errors"])
+            self.assertNotIn("moer_percentile", snap)
+        finally:
+            del os.environ["FOOTPRINT_WT_USER"]
+            del os.environ["FOOTPRINT_WT_PASS"]
+
+    def test_carry_forward_preserves_signal(self):
+        """A refresh that fails a signal keeps the previous snapshot's value
+        instead of destroying it."""
+        prev_ts = time.time() - 90 * 60  # 1.5h old: expired TTL, inside MAX_AGE
+        write_cache({"fetched_at": prev_ts, "ci_g_per_kwh": 222.0,
+                     "ci_source": "electricitymaps", "ci_fetched_at": prev_ts})
+        snap = live.refresh(COEFFS, force=True)  # no network signals configured
+        self.assertEqual(snap.get("ci_g_per_kwh"), 222.0)
+        self.assertTrue(any("carried forward" in e for e in snap["errors"]))
+        self.assertEqual(snap.get("ci_fetched_at"), prev_ts)
+
+
+class Test3LiveOverridesInCompute(unittest.TestCase):
+    ENTRIES = {"m": (10000, 50000, 2000, "claude-sonnet-5")}
+
+    def test_ci_substitution_exact(self):
+        static = engine.compute(self.ENTRIES, COEFFS, "temperate")
+        lively = engine.compute(self.ENTRIES, COEFFS, "temperate", live={"ci_g_per_kwh": 100.0})
+        self.assertEqual(lively["energy_Wh"], static["energy_Wh"])
+        # 4.68 Wh * 100 g/kWh / 1000 = 0.468 g; live band is +/-25%
+        self.assertAlmostEqual(lively["carbon_g"][0], 0.468, places=12)
+        self.assertAlmostEqual(lively["carbon_g"][1], static["energy_Wh"][1] / 1000 * 75.0, places=12)
+        self.assertAlmostEqual(lively["carbon_g"][2], static["energy_Wh"][2] / 1000 * 125.0, places=12)
+        self.assertEqual(lively["ci_basis"], "live-grid")
+        self.assertEqual(static["ci_basis"], "loc-based")
+
+    def test_nonfinite_live_values_ignored(self):
+        res = engine.compute(self.ENTRIES, COEFFS, "temperate",
+                             live={"ci_g_per_kwh": float("nan"),
+                                   "wue_site_L_per_kWh": float("inf")})
+        self.assertEqual(res["ci_basis"], "loc-based")
+        self.assertEqual(res["wue_basis"], "preset")
+
+    def test_live_wue_boundary_correct(self):
+        wet = engine.compute(self.ENTRIES, COEFFS, "temperate", live={"wue_site_L_per_kWh": 0.40})
+        # central water = IT 3.9 * 0.40 + facility 4.68 * 1.0 = 6.24
+        self.assertAlmostEqual(wet["water_mL"][0], 6.24, places=12)
+        static = engine.compute(self.ENTRIES, COEFFS, "temperate")
+        self.assertLessEqual(wet["water_mL"][1], static["water_mL"][1] + 1e-12)
+        self.assertGreaterEqual(wet["water_mL"][2], static["water_mL"][2] - 1e-12)
+
+    def test_render_basis_tags(self):
+        static = engine.compute(self.ENTRIES, COEFFS, "temperate")
+        lively = engine.compute(self.ENTRIES, COEFFS, "temperate", live={"ci_g_per_kwh": 100.0})
+        self.assertIn("(live-grid 100g)", engine.render(lively))
+        self.assertIn("(loc-based)", engine.render(static))
+
+
+class Test4WeatherModel(unittest.TestCase):
+    WUE = COEFFS["region_presets"]["temperate"]["WUE_site_L_per_kWh"]
+
+    def test_stull_sanity(self):
+        self.assertAlmostEqual(live.wet_bulb_stull(20.0, 50.0), 13.7, delta=0.3)
+
+    def test_cool_day_preset_low(self):
+        self.assertEqual(live.wue_from_weather(10.0, 50.0, self.WUE), self.WUE["low"])
+
+    def test_hot_humid_day_preset_high(self):
+        self.assertEqual(live.wue_from_weather(35.0, 90.0, self.WUE), self.WUE["high"])
+
+    def test_humidity_changes_water_draw(self):
+        """The wet-bulb term: 30C at 10% RH must draw less water than 30C at
+        90% RH (this was the dry-bulb-only bug)."""
+        dry = live.wue_from_weather(30.0, 10.0, self.WUE)
+        humid = live.wue_from_weather(30.0, 90.0, self.WUE)
+        self.assertLess(dry, humid)
+        self.assertGreater(dry, self.WUE["low"])
+        self.assertLessEqual(humid, self.WUE["high"])
+
+    def test_bounded_by_preset(self):
+        for t in (0, 15, 25, 29, 33, 45):
+            for rh in (5, 40, 95):
+                v = live.wue_from_weather(t, rh, self.WUE)
+                self.assertGreaterEqual(v, self.WUE["low"])
+                self.assertLessEqual(v, self.WUE["high"])
+
+
+class Test5Recommendations(unittest.TestCase):
+    FC = [{"t": "T%02d" % h, "ci": ci} for h, ci in enumerate([400, 300, 200, 100, 50, 80, 300, 450])]
+
+    def test_best_window(self):
+        win = recommend.best_window({"ci_g_per_kwh": 400.0, "ci_forecast": self.FC})
+        self.assertEqual((win["best_ci"], win["best_t"]), (50, "T04"))
+        self.assertAlmostEqual(win["ratio"], 8.0)
+
+    def test_defer_advice(self):
+        lines = recommend.when_advice({"ci_g_per_kwh": 400.0, "ci_forecast": self.FC}, COEFFS)
+        self.assertTrue(any("deferring" in s for s in lines), lines)
+
+    def test_static_fallback_labeled_speculative(self):
+        lines = recommend.when_advice(None, COEFFS)
+        self.assertTrue(any("SPECULATIVE" in s for s in lines), lines)
+
+    def test_watttime_percentile_labeled_with_region_not_gkwh(self):
+        lines = recommend.when_advice(
+            {"moer_percentile": 90.0, "moer_region": "CAISO_NORTH"}, COEFFS)
+        self.assertTrue(any("not g/kWh" in s and "CAISO_NORTH" in s for s in lines), lines)
+
+    def test_which_advice(self):
+        res = engine.compute({"m": (10000, 200000, 5000, "claude-fable-5")}, COEFFS, "temperate")
+        lines = recommend.which_advice(res, COEFFS)
+        self.assertTrue(any("small-tier" in s and "%" in s for s in lines), lines)
+        self.assertTrue(any("cache reads" in s for s in lines), lines)
+
+
+class Test6Config(unittest.TestCase):
+    def test_tier_lookup_current_models(self):
+        lk = COEFFS["model_tier_lookup"]
+        for mid_id, want in [
+            ("claude-fable-5", "frontier"),
+            ("claude-mythos-5", "frontier"),
+            ("gemini-2.5-flash", "small"),
+            ("gemini-2.5-pro", "frontier"),
+            ("gemini-3-flash-preview", "small"),
+            ("deepseek-v4", "mid"),
+            ("grok-4-1212", "frontier"),
+        ]:
+            tier, known = engine.tier_for(mid_id, lk)
+            self.assertTrue(known, mid_id)
+            self.assertEqual(tier, want, mid_id)
+
+    def test_site_selects_region(self):
+        """FOOTPRINT_SITE=phoenix must select hot_arid without a separate
+        FOOTPRINT_REGION (the Phoenix-WUE-with-temperate-EWIF bug)."""
+        os.environ["FOOTPRINT_SITE"] = "phoenix"
+        try:
+            cfg = live.site_config()
+            self.assertEqual(engine.resolve_region(COEFFS, site_region=cfg["region"]), "hot_arid")
+        finally:
+            del os.environ["FOOTPRINT_SITE"]
+
+    def test_explicit_region_overrides_site(self):
+        self.assertEqual(
+            engine.resolve_region(COEFFS, region="cool_humid", site_region="hot_arid"),
+            "cool_humid")
+        self.assertEqual(engine.resolve_region(COEFFS, region="bogus"), "temperate")
+
+    def test_invalid_coordinates_unconfigured_not_fatal(self):
+        os.environ["FOOTPRINT_LAT"] = "999"
+        os.environ["FOOTPRINT_LON"] = "not-a-number"
+        try:
+            cfg = live.site_config()
+            self.assertIsNone(cfg["lat"])
+            self.assertIsNone(cfg["lon"])
+        finally:
+            del os.environ["FOOTPRINT_LAT"]
+            del os.environ["FOOTPRINT_LON"]
+
+    def test_validate_coefficients_rejects_garbage(self):
+        broken = json.loads(json.dumps(COEFFS))
+        broken["model_tiers"]["mid"]["e_in_Wh_per_1k_tok"]["low"] = 99  # low > central
+        with self.assertRaises(ValueError):
+            engine.validate_coefficients(broken)
+        broken2 = json.loads(json.dumps(COEFFS))
+        broken2["$schema_version"] = "9.0.0"
+        with self.assertRaises(ValueError):
+            engine.validate_coefficients(broken2)
+        with self.assertRaises(ValueError):
+            engine.validate_coefficients("not a dict")
+
+
+class Test7CliEndToEnd(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="modelfootprint_cli_")
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, ignore_errors=True)
+
+    def cli(self, *args, env_extra=None, cwd=None):
+        return subprocess.run(
+            [sys.executable, "-m", "modelfootprint", *args],
+            capture_output=True, text=True, env=scrubbed_env(env_extra),
+            cwd=cwd or self.tmp, timeout=30,
+        )
+
+    def test_whatif_happy_path(self):
+        r = self.cli("whatif", "opus", "500k")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("location-based", r.stdout)
+        self.assertIn("← this estimate", r.stdout)
+        self.assertIn("scenario envelope", r.stdout.lower())
+
+    def test_whatif_unparseable_tokens(self):
+        r = self.cli("whatif", "opus", "junk")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not parse", r.stdout)
+        self.assertNotIn("Wh", r.stdout)
+
+    def test_report_no_transcript(self):
+        r = self.cli("report")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("No transcript found", r.stdout)
+
+    def test_statusline_uses_fresh_cache_and_ignores_stale(self):
+        cache = os.path.join(self.tmp, "live_cache.json")
+        tpath = os.path.join(self.tmp, "t.jsonl")
+        with open(tpath, "w") as f:
+            f.write(json.dumps({"type": "assistant", "message": {
+                "id": "m1", "model": "claude-sonnet-5",
+                "usage": {"input_tokens": 10000, "cache_creation_input_tokens": 0,
+                          "cache_read_input_tokens": 50000, "output_tokens": 2000}}}) + "\n")
+        stdin = json.dumps({"transcript_path": tpath, "session_id": "x"})
+        env = scrubbed_env({"FOOTPRINT_CACHE": cache})
+        del env["FOOTPRINT_LIVE"]
+
+        # fingerprint must match the subprocess's scrubbed config
+        old_cache = os.environ["FOOTPRINT_CACHE"]
+        os.environ["FOOTPRINT_CACHE"] = cache
+        try:
+            fp = live.config_fingerprint()
+        finally:
+            os.environ["FOOTPRINT_CACHE"] = old_cache
+
+        write_cache({"fetched_at": time.time(), "ci_g_per_kwh": 250.0,
+                     "zone": "TEST", "config_fp": fp}, path=cache)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "footprint_statusline.py")],
+                           input=stdin, capture_output=True, text=True, env=env, timeout=30)
+        self.assertIn("(live-grid 250g)", r.stdout)
+        self.assertIn("🌫 1.2 gCO2e", r.stdout)  # 4.68 Wh * 250 g/kWh
+
+        write_cache({"fetched_at": time.time() - 2 * 3600, "ci_g_per_kwh": 250.0,
+                     "zone": "TEST", "config_fp": fp}, path=cache)
+        r = subprocess.run([sys.executable, os.path.join(HERE, "footprint_statusline.py")],
+                           input=stdin, capture_output=True, text=True, env=env, timeout=30)
+        self.assertIn("(loc-based)", r.stdout, "stale cache must not be used")
+
+
+class Test8GoldenCrossRuntime(unittest.TestCase):
+    """The site's JavaScript engine must produce byte-identical math to the
+    Python engine. Skipped (with a visible notice) when node is missing."""
+
+    def test_js_matches_python(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not available — JS golden check skipped")
+        tier_models = {"small": "claude-haiku-4-5", "mid": "claude-sonnet-5",
+                       "frontier": "claude-opus-4-8"}
+        fixtures = {"compute": [], "fmt_sig": []}
+        for tier, model in tier_models.items():
+            for region in ("temperate", "hot_arid", "cool_humid"):
+                tokens = {"in": 12345, "cache": 456789, "out": 23456}
+                res = engine.compute(
+                    {"m": (tokens["in"], tokens["cache"], tokens["out"], model)},
+                    COEFFS, region)
+                fixtures["compute"].append({
+                    "tier": tier, "region": region, "tokens": tokens,
+                    "expected": {"energy": list(res["energy_Wh"]),
+                                 "water": list(res["water_mL"]),
+                                 "carbon": list(res["carbon_g"])},
+                })
+        for x in (0.0999, 4.6812, 13.02, 0.234, 1234.0, 99.9, 0.001234, 567890.0):
+            fixtures["fmt_sig"].append({"x": x, "n": 2, "expected": engine.fmt_sig(x)})
+        fx_path = os.path.join(TMP, "golden.json")
+        with open(fx_path, "w") as f:
+            json.dump(fixtures, f)
+        r = subprocess.run([node, os.path.join(HERE, "site", "golden_check.mjs"), fx_path],
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        print("\n   " + r.stdout.strip())
+
+
+class Test9SanityAnchor(unittest.TestCase):
+    def test_altman_anchor_nonblocking(self):
+        """NON-BLOCKING sanity check (CLOUD_CONTEXT.md): a cache-light 1k-token
+        chat on the mid tier should land within ~5x of the public ~0.34
+        Wh/query anchor. Prints a notice instead of failing when outside."""
+        e = report.whatif_entries("claude-sonnet-5", 1000, "chat")
+        res = engine.compute(e, COEFFS, "temperate")
+        wh = res["energy_Wh"][0]
+        if not (0.34 / 5 <= wh <= 0.34 * 5):
+            print("\nNOTE (non-blocking): mid-tier 1k-token chat = %.3f Wh vs 0.34 Wh anchor" % wh)
+        else:
+            print("\n   Altman anchor: mid-tier 1k chat = %.3f Wh (within 5x of 0.34)" % wh)
+
+
+def load_tests(loader, tests, pattern):  # keep class order deterministic
+    return tests
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

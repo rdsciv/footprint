@@ -1,14 +1,16 @@
 {
-  "$schema_version": "0.2.0",
-  "$description": "Directional telemetry coefficients for an AI coding-agent statusline. Every value is {central, low, high, label, source}. label in {measured, modeled, speculative}. See METHODOLOGY.md for full derivation.",
-  "$last_updated": "2026-07-12",
+  "$schema_version": "0.3.0",
+  "$description": "Directional telemetry coefficients for an AI coding-agent statusline. Core numeric coefficients are {central, low, high, label, source}; label in {measured, modeled, speculative}. low/high are SCENARIO ENVELOPE bounds (every factor at its bound simultaneously), not confidence intervals. See METHODOLOGY.md v0.3.0 for full derivation and the accounting-boundary declaration.",
+  "$last_updated": "2026-07-13",
   "$core_equations": {
-    "energy_Wh": "(tok_in * e_in + tok_cache * e_cache + tok_out * e_out) * PUE",
-    "water_L": "energy_kWh * (WUE_site(location, t) + EWIF_grid(location, t))",
-    "carbon_g": "energy_kWh * CI_grid(location, t)"
+    "energy_IT_Wh": "tok_in * e_in + tok_cache * e_cache + tok_out * e_out (coefficients per 1K tokens, IT/node boundary)",
+    "energy_facility_Wh": "energy_IT_Wh * PUE",
+    "water_L": "energy_IT_kWh * WUE_site(location, t) + energy_facility_kWh * EWIF_grid(location, t)",
+    "carbon_g": "energy_facility_kWh * CI_grid(location, t)"
   },
   "model_tiers": {
     "$description": "Per-token energy coefficients in Wh per 1000 tokens. Map a model name to a tier via model_tier_lookup below.",
+    "$boundary": "IT_node: coefficients approximate IT-equipment (accelerator + host node) energy per token, per the Jegham et al. GPU-count hardware-class methodology. PUE converts to facility energy. Google's measured full_stack_scaling_factor (below) is retained as a cross-check anchor ONLY — it already includes facility overhead, so multiplying it on top of PUE would double-count (METHODOLOGY.md 2.2).",
     "small": {
       "description": "<=20B-class models (Nano/Micro hardware classes): Haiku-class, GPT-4o-mini-class, Llama-8B-class",
       "e_in_Wh_per_1k_tok": {
@@ -86,9 +88,10 @@
     }
   },
   "model_tier_lookup": {
-    "$description": "Example mapping of common model name substrings to tiers. Statusline implementers should update this as new models ship; unmatched models should default to 'mid' with a wider uncertainty flag rather than silently guessing 'small'.",
+    "$description": "Mapping of model-name substrings (matched at non-alphanumeric boundaries, longest key wins) to tiers. Update as new models ship. Unmatched models default to 'mid' CENTRAL with an envelope spanning small-tier lows to frontier-tier highs (the wider-uncertainty promise, implemented in engine.compute). One deliberate divergence from Jegham et al.: they classify Claude Sonnet-class as Large/8-GPU; this table keeps Sonnet-class at 'mid' per this project's three-tier collapse (METHODOLOGY.md 2.2) — the mid tier's band is wide enough to cover the disagreement.",
     "haiku": "small",
-    "gpt-4o-mini": "small",
+    "gpt-4o": "frontier",
+    "gpt-4o-mini": "mid",
     "gpt-5-nano": "small",
     "llama-8b": "small",
     "flash": "small",
@@ -232,7 +235,14 @@
     }
   },
   "carbon_intensity_accounting_note": {
-    "$description": "Location-based (LB) vs market-based (MB) carbon intensity for the SAME electricity can differ by 3-4x. Statusline MUST label which basis is used; default recommendation is location-based for a directional/verifiable tool.",
+    "$description": "Location-based (LB) vs market-based (MB) carbon intensity for the SAME electricity can differ by 3-4x. Statusline MUST label which basis is used; default recommendation is location-based for a directional/verifiable tool. The static central (345) is a Google-fleet proxy, NOT the user's region — the hourly/regional range below feeds the carbon envelope so the displayed bounds admit that.",
+    "location_based_hourly_range_gCO2e_per_kWh": {
+      "central": 345,
+      "low": 150,
+      "high": 600,
+      "label": "modeled",
+      "source": "Envelope for the static fallback: US regional grid averages span roughly 100-700 g/kWh and solar-heavy grids swing ~0-630 g/kWh marginal across a day (docs/02); 150-600 brackets the plausible average-CI range for major datacenter grids without a live signal. Live Electricity Maps CI replaces this with a +/-25% MODELED forecast/measurement band."
+    },
     "google_2024_example_gCO2e_per_kWh": {
       "location_based": 345,
       "market_based": 94,

@@ -26,16 +26,26 @@ DEFAULT_PROFILE = "agent"
 
 
 def find_transcript(cwd=None):
-    """Locate the most recently modified transcript for this project.
-    Claude Code stores transcripts under ~/.claude/projects/<munged-cwd>/."""
+    """Locate the most recently modified transcript for this project, plus a
+    count of other transcripts active in the last hour (concurrent sessions
+    make "most recent" ambiguous — the report says so rather than guessing).
+    Claude Code stores transcripts under ~/.claude/projects/<munged-cwd>/.
+    Returns (path_or_None, concurrent_count)."""
     cwd = cwd or os.getcwd()
     munged = re.sub(r"[^A-Za-z0-9]", "-", cwd)
     candidates = glob.glob(
         os.path.join(os.path.expanduser("~"), ".claude", "projects", munged, "*.jsonl")
     )
     if not candidates:
-        return None
-    return max(candidates, key=os.path.getmtime)
+        return None, 0
+    import time as _time
+
+    newest = max(candidates, key=os.path.getmtime)
+    cutoff = _time.time() - 3600
+    concurrent = sum(
+        1 for c in candidates if c != newest and os.path.getmtime(c) > cutoff
+    )
+    return newest, concurrent
 
 
 def parse_token_count(s):
@@ -95,7 +105,7 @@ def _footprint_block(res, live):
             fmt_sig(res["ci_g_per_kwh"]), (live or {}).get("zone") or "?", stale
         )
     else:
-        c_tag = "location-based static avg %g g/kWh" % res["ci_g_per_kwh"]
+        c_tag = "location-based static avg %g g/kWh (Google fleet proxy)" % res["ci_g_per_kwh"]
     w_tag = (
         "live-weather WUE (modeled economizer ramp)"
         if res["wue_basis"] == "live-weather"
@@ -116,12 +126,24 @@ def _footprint_block(res, live):
 def session_report(coeffs, region, transcript=None, live=None):
     """Full markdown report for a real session. Returns a string."""
     lines = ["## Session footprint", ""]
-    tpath = transcript or find_transcript()
+    concurrent = 0
+    if transcript:
+        tpath = transcript
+    else:
+        tpath, concurrent = find_transcript()
     if not tpath or not os.path.isfile(tpath):
         return (
             "## Session footprint\n\nNo transcript found for this project — "
             "nothing to report (and no numbers will be invented)."
         )
+    if concurrent:
+        lines += [
+            "_⚠ %d other session(s) in this project were active in the last "
+            "hour — this report covers the most recently active transcript, "
+            "which may not be the one you're in. Pass --transcript to pin it._"
+            % concurrent,
+            "",
+        ]
     entries = parse_transcript(tpath)
     if not entries:
         return "## Session footprint\n\nTranscript has no assistant usage entries yet."
@@ -174,7 +196,8 @@ def session_report(coeffs, region, transcript=None, live=None):
             "with FOOTPRINT_SITE + FOOTPRINT_EM_TOKEN set) — static coefficients used, "
             "labeled above._",
         ]
-    lines += ["", "_Estimates, not measurements: see METHODOLOGY.md and LIMITATIONS_AND_FAQ.md._"]
+    lines += ["", "_Estimates, not measurements; low–high figures are a scenario envelope, "
+                  "not a confidence interval. See METHODOLOGY.md and LIMITATIONS_AND_FAQ.md._"]
     return "\n".join(lines)
 
 
@@ -207,5 +230,6 @@ def whatif_report(coeffs, region, model, total_tokens, profile=DEFAULT_PROFILE, 
     for name, e, _desc in alts:
         marker = " ← this estimate" if name == tier_name else ""
         lines.append("| %s | %s Wh%s | %s–%s |" % (name, fmt_sig(e[0]), marker, fmt_sig(e[1]), fmt_sig(e[2])))
-    lines += ["", "_Estimates, not measurements: see METHODOLOGY.md._"]
+    lines += ["", "_Estimates, not measurements; low–high figures are a scenario envelope, "
+                  "not a confidence interval. See METHODOLOGY.md._"]
     return "\n".join(lines)

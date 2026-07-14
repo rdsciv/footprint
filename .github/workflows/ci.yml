@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Statusline accuracy contract
+        run: python3 test_footprint_statusline.py
+      - name: Package suite (incl. JS/Python golden cross-check)
+        run: python3 test_modelfootprint.py
+
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: pip install works and bundles coefficients
+        run: |
+          python3 -m pip install .
+          cd /tmp
+          footprint whatif opus 500k
+          python3 -c "from modelfootprint import load_coefficients; c = load_coefficients(); print('installed coefficients v' + c['\$schema_version'])"
+
+  coefficients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Structural validation of coefficients.json
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          sys.path.insert(0, ".")
+          from modelfootprint.engine import validate_coefficients
+          with open("modelfootprint/coefficients.json") as f:
+              c = validate_coefficients(json.load(f))
+          print("coefficients v%s valid (%d tiers, %d regions)" % (
+              c["$schema_version"],
+              sum(1 for k in c["model_tiers"] if not k.startswith(("$","_"))),
+              sum(1 for k in c["region_presets"] if not k.startswith(("$","_")))))
+          EOF

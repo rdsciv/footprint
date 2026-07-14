@@ -4,7 +4,7 @@ inference from real session transcripts or hypothetical usage.
 See METHODOLOGY.md for derivations and LIMITATIONS_AND_FAQ.md for what these
 estimates can and cannot claim.
 """
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .engine import (  # noqa: F401
     BOUNDS,
@@ -16,5 +16,7 @@ from .engine import (  # noqa: F401
     load_coefficients,
     parse_transcript,
     render,
+    resolve_region,
     tier_for,
+    validate_coefficients,
 )

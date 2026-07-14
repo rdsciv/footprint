@@ -66,6 +66,7 @@ def when_advice(snapshot, coeffs):
 
     pct = snapshot.get("moer_percentile") if snapshot else None
     if pct is not None:
+        wt_region = snapshot.get("moer_region") or "unknown region"
         band = (
             "dirty (top third of this grid's marginal-emissions range)"
             if pct >= 67
@@ -74,8 +75,8 @@ def when_advice(snapshot, coeffs):
             else "mid-range"
         )
         lines.append(
-            "Marginal signal (WattTime): %dth percentile — %s. "
-            "[relative index, not g/kWh]" % (round(pct), band)
+            "Marginal signal (WattTime, %s): %dth percentile — %s. "
+            "[relative index, not g/kWh]" % (wt_region, round(pct), band)
         )
 
     if not lines:

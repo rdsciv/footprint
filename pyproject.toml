@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelfootprint"
+version = "0.3.0"
+description = "Estimate the energy, water, and carbon footprint of LLM usage from real session transcripts or hypothetical workloads, with honest uncertainty envelopes."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["sustainability", "energy", "carbon", "water", "llm", "green-ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Homepage = "https://github.com/rdsciv/footprint"
+Documentation = "https://github.com/rdsciv/footprint#readme"
+
+[project.scripts]
+footprint = "modelfootprint.__main__:main"
+
+[tool.setuptools]
+packages = ["modelfootprint"]
+
+[tool.setuptools.package-data]
+modelfootprint = ["coefficients.json"]

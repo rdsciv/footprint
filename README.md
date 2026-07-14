@@ -12,8 +12,8 @@
 
 Most AI-footprint numbers you've seen are either marketing or outrage. The truth is that **nobody outside a provider can measure your prompt's footprint** — but you *can* estimate it rigorously, with sourced coefficients, propagated uncertainty ranges, and labels that admit what's measured, what's modeled, and what's speculative. That's what this project does:
 
-- **Every number ships with a [low–high] range.** The range is not decoration; it's the honesty.
-- **Every coefficient carries `{central, low, high, label, source}`** in [`coefficients.json`](./coefficients.json) — `measured` (provider disclosure), `modeled` (derived from benchmarks), or `speculative` (labeled shape, off by default).
+- **Every number ships with a [low–high] range.** The range is a *scenario envelope* — every factor at its pessimistic/optimistic bound at once — and is labeled as such, never dressed up as a confidence interval.
+- **Every coefficient carries `{central, low, high, label, source}`** in [`coefficients.json`](./modelfootprint/coefficients.json) — `measured` (provider disclosure), `modeled` (derived from benchmarks), or `speculative` (labeled shape, off by default).
 - **Carbon is always basis-labeled** — `(loc-based)` static average or `(live-grid …)` real-time — because location-based and market-based accounting differ 3–4× for the same electricity, and mixing them silently is how numbers lie.
 - What we cannot know from outside (your batch occupancy, the provider's speculative-decoding hit rate, which facility served you) is documented in [LIMITATIONS_AND_FAQ.md](./LIMITATIONS_AND_FAQ.md), not papered over.
 
@@ -23,11 +23,12 @@ Requires Python 3 (stdlib only — no dependencies).
 
 ```bash
 git clone https://github.com/rdsciv/footprint && cd footprint
+pip install .        # optional — bundles the coefficients and adds a `footprint` command
 
 # statusline: add to .claude/settings.json in any project (or globally)
 { "statusLine": { "type": "command", "command": "python3 /path/to/footprint/footprint_statusline.py" } }
 
-# session report / what-if from any terminal
+# session report / what-if from any terminal (or `footprint ...` if installed)
 python3 -m modelfootprint report
 python3 -m modelfootprint whatif opus 500k
 python3 -m modelfootprint whatif sonnet 2M chat
@@ -45,7 +46,7 @@ export FOOTPRINT_EM_TOKEN=...         # Electricity Maps token
 python3 -m modelfootprint refresh     # hourly cache; statusline never touches the network
 ```
 
-Weather-driven water estimates (wet-bulb → economizer model) come free with `FOOTPRINT_SITE` — no key needed. Optional: `FOOTPRINT_WT_USER/PASS` for WattTime's marginal signal.
+Weather-driven water estimates (dry-bulb economizer gate × wet-bulb draw intensity) come free with `FOOTPRINT_SITE` — no key needed. Optional: `FOOTPRINT_WT_USER/PASS` plus `FOOTPRINT_WT_REGION` for WattTime's marginal signal (the region is required — timing advice for the wrong grid is worse than none).
 
 ## The research
 

@@ -9,10 +9,10 @@
 Water attribution has two physically distinct components (METHODOLOGY.md §1.2):
 
 ```
-water_L = energy_kWh × (WUE_site + EWIF_grid)
+water_L = energy_IT_kWh × WUE_site + energy_facility_kWh × EWIF_grid
 ```
 
-- **WUE_site (on-site)**: water evaporated by the datacenter's own cooling towers or adiabatic systems, per kWh of IT energy. Microsoft's fleet-wide average disclosure: **0.27 L/kWh** (FY25).
+- **WUE_site (on-site)**: water evaporated by the datacenter's own cooling towers or adiabatic systems, per kWh of **IT energy** (that's how Microsoft's disclosure defines it, which is why it multiplies the pre-PUE energy). Fleet-wide average disclosure: **0.27 L/kWh** (FY25).
 - **EWIF_grid (off-site)**: water evaporated *generating the electricity* — cooling towers at thermoelectric power plants (gas, coal, nuclear). US aggregate: **~1.2 gal/kWh ≈ 4.5 L/kWh** across the ~60% of US electricity that is thermoelectric.
 
 The aggregate US datacenter figure — **~1.3 gallons of water per kWh consumed** — decomposes as ~0.1 gal direct + ~1.2 gal indirect. Read that again: **the power plant's cooling tower typically evaporates several times more water for your prompt than the datacenter's** (2023 US totals: ~17 billion gallons direct vs ~35 billion indirect). Any water number that only counts on-site cooling is missing the majority of the story. This split is why the tool's water estimate never drops the EWIF term, even though it's grid-dependent and uncertain.

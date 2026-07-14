@@ -3,9 +3,10 @@
 `coefficients.json` today is a static, versioned snapshot. This document describes the path from that snapshot to hourly-refreshed, location- and time-aware estimates, and is organized by which term in the core model (METHODOLOGY.md §1.2) each live signal improves.
 
 ```
-energy_Wh = (tok_in * e_in + tok_cache * e_cache + tok_out * e_out) * PUE
-water_L   = energy_kWh * (WUE_site(location, t) + EWIF_grid(location, t))
-carbon_g  = energy_kWh * CI_grid(location, t)
+energy_IT_Wh       = tok_in * e_in + tok_cache * e_cache + tok_out * e_out
+energy_facility_Wh = energy_IT_Wh * PUE
+water_L   = energy_IT_kWh * WUE_site(location, t) + energy_facility_kWh * EWIF_grid(location, t)
+carbon_g  = energy_facility_kWh * CI_grid(location, t)
 ```
 
 ## 1. Grid carbon intensity, CI_grid(location, t) — highest priority, most mature APIs

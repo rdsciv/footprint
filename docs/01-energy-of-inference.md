@@ -1,6 +1,6 @@
 # The Energy of Inference
 
-*Part 1 of the [footprint](../README.md) deep-dive series. The numbers here are the ones behind [`coefficients.json`](../coefficients.json); derivations live in [METHODOLOGY.md](../METHODOLOGY.md).*
+*Part 1 of the [footprint](../README.md) deep-dive series. The numbers here are the ones behind [`coefficients.json`](../modelfootprint/coefficients.json); derivations live in [METHODOLOGY.md](../METHODOLOGY.md).*
 
 Training gets the headlines, but inference is where AI's energy story now lives. Inference accounts for roughly 80–90% of total AI compute today, and industry projections put it at ~75% of total AI energy demand by 2030. Every prompt you send is a marginal draw on that system. This doc explains what one prompt physically costs, why the honest answer is a *range*, and why the range is narrowing.
 

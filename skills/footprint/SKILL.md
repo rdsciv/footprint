@@ -52,7 +52,7 @@ parse warning, show it and ask the user to restate rather than guessing.
 
 - `FOOTPRINT_SITE` (virginia|iowa|oregon|texas|phoenix|california|dublin|amsterdam|frankfurt|singapore) — datacenter site preset: grid zone + weather coords + climate class
 - `FOOTPRINT_EM_TOKEN` — Electricity Maps API token (free personal tier) for live grid carbon intensity
-- `FOOTPRINT_WT_USER`/`FOOTPRINT_WT_PASS` — optional WattTime credentials (marginal percentile, timing advice only)
+- `FOOTPRINT_WT_USER`/`FOOTPRINT_WT_PASS` + `FOOTPRINT_WT_REGION` — optional WattTime credentials and region (marginal percentile, timing advice only; the region is required, there is no default)
 - `FOOTPRINT_REGION` — static climate fallback (hot_arid|temperate|cool_humid|hot_humid)
 - `FOOTPRINT_LIVE=0` — disable live signals entirely
 

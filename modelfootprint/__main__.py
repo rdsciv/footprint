@@ -1,21 +1,24 @@
-"""CLI: python3 -m modelfootprint <command>
+"""CLI: python3 -m modelfootprint <command>   (or `footprint <command>` once
+installed via pip)
 
 Commands:
   report  [--transcript PATH] [--region R] [--refresh]
-      Markdown footprint report for the current (or given) session transcript.
+      Markdown footprint report for the most recent session transcript in
+      this project (or an explicit --transcript).
   whatif  MODEL TOKENS [chat|agent|out-heavy] [in=N] [cache=N] [out=N]
       Hypothetical estimate, e.g.:  whatif opus 500k   whatif sonnet 2M chat
       Explicit splits override the profile: whatif haiku 0 in=10k cache=50k out=2k
   refresh [--force]
       Fetch live grid/weather signals into the hourly cache (the only
       networked command; everything else reads the cache or static values).
+      Exits nonzero when a configured signal could not be obtained.
 """
 import argparse
 import os
 import sys
 
-from .engine import load_coefficients
-from .live import read_cached, refresh
+from .engine import load_coefficients, resolve_region
+from .live import read_cached, refresh, site_config
 from .report import (
     DEFAULT_PROFILE,
     PROFILES,
@@ -23,14 +26,6 @@ from .report import (
     session_report,
     whatif_report,
 )
-
-
-def _region(coeffs, arg=None):
-    region = arg or os.environ.get("FOOTPRINT_REGION", "temperate")
-    presets = coeffs.get("region_presets", {})
-    if region not in presets or region.startswith(("_", "$")):
-        region = "temperate"
-    return region
 
 
 def main(argv=None):
@@ -44,7 +39,7 @@ def main(argv=None):
     p_report.add_argument("--transcript")
     p_report.add_argument("--region")
     p_report.add_argument("--refresh", action="store_true",
-                          help="refresh live signals first (networked)")
+                          help="force-refresh live signals first (networked)")
 
     p_whatif = sub.add_parser("whatif", help="hypothetical estimate")
     p_whatif.add_argument("model")
@@ -65,20 +60,22 @@ def main(argv=None):
 
     if args.cmd == "refresh":
         snap = refresh(coeffs, force=args.force)
-        got = [k for k in ("ci_g_per_kwh", "ci_forecast", "moer_percentile", "wue_site_L_per_kWh") if snap.get(k) is not None]
+        got = [k for k in ("ci_g_per_kwh", "ci_forecast", "moer_percentile", "wue_site_L_per_kWh")
+               if snap.get(k) is not None]
         print("refreshed: %s" % (", ".join(got) if got else "nothing (no signals configured)"))
         for err in snap.get("errors", []):
             print("  ⚠ %s" % err)
-        return 0
+        return 0 if snap.get("ok", True) else 1
 
     live = None
     if os.environ.get("FOOTPRINT_LIVE") != "0":
         if getattr(args, "refresh", False):
-            live = refresh(coeffs)
+            live = refresh(coeffs, force=True)
         else:
             live = read_cached()
 
-    region = _region(coeffs, args.region)
+    region = resolve_region(coeffs, region=args.region,
+                            site_region=site_config().get("region"))
 
     if args.cmd == "report":
         print(session_report(coeffs, region, transcript=args.transcript, live=live))
