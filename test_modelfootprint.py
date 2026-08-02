@@ -29,7 +29,14 @@ for _k in [k for k in os.environ if k.startswith("FOOTPRINT_")]:
 TMP = tempfile.mkdtemp(prefix="modelfootprint_test_")
 os.environ["FOOTPRINT_CACHE"] = os.path.join(TMP, "live.json")  # isolate before imports
 
-from modelfootprint import engine, live, recommend, report  # noqa: E402
+from modelfootprint import (  # noqa: E402
+    counterfactuals,
+    engine,
+    insights,
+    live,
+    recommend,
+    report,
+)
 
 COEFFS = engine.load_coefficients()
 FP = live.config_fingerprint()  # fingerprint of the scrubbed test configuration
@@ -428,6 +435,112 @@ class Test9SanityAnchor(unittest.TestCase):
             print("\nNOTE (non-blocking): mid-tier 1k-token chat = %.3f Wh vs 0.34 Wh anchor" % wh)
         else:
             print("\n   Altman anchor: mid-tier 1k chat = %.3f Wh (within 5x of 0.34)" % wh)
+
+
+class Test10InsightsAndCounterfactuals(unittest.TestCase):
+    """Usage-style composition + modeled savings (Phase 1)."""
+
+    def setUp(self):
+        # Mixed session: frontier + mid, cache-heavy agent shape
+        self.entries = {
+            "a": (5000, 80000, 3000, "claude-opus-4"),
+            "b": (2000, 20000, 1000, "claude-sonnet-4"),
+        }
+        self.res = engine.compute(self.entries, COEFFS, "temperate")
+
+    def test_composition_parts_sum_to_total(self):
+        parts = insights.energy_by_token_class(self.entries, COEFFS, "temperate")
+        total = sum(parts.values())
+        self.assertAlmostEqual(total, self.res["energy_Wh"][0], places=6)
+        self.assertGreater(parts["cache"], 0)
+        self.assertGreater(parts["out"], 0)
+
+    def test_composition_lines_include_bar(self):
+        parts = insights.energy_by_token_class(self.entries, COEFFS, "temperate")
+        text = "\n".join(insights.composition_lines(parts, self.res["energy_Wh"][0]))
+        self.assertIn("█", text)
+        self.assertIn("cache reads", text)
+        self.assertIn("not a usage quota", text.lower())
+
+    def test_frontier_insight_present(self):
+        ins = insights.contribution_insights(
+            self.entries, COEFFS, "temperate", self.res
+        )
+        kinds = [i["kind"] for i in ins]
+        self.assertIn("tier", kinds)
+        self.assertTrue(any("frontier" in i["headline"] for i in ins))
+
+    def test_tier_down_saves_energy(self):
+        row = counterfactuals.scenario_one_tier_down(
+            self.entries, COEFFS, "temperate", self.res
+        )
+        self.assertIsNotNone(row)
+        self.assertGreater(row["save_energy_Wh"], 0)
+        self.assertGreater(row["save_energy_pct"], 0)
+
+    def test_all_small_saves_more_than_tier_down(self):
+        td = counterfactuals.scenario_one_tier_down(
+            self.entries, COEFFS, "temperate", self.res
+        )
+        sm = counterfactuals.scenario_all_tier(
+            self.entries, COEFFS, "temperate", self.res, "small"
+        )
+        self.assertIsNotNone(sm)
+        self.assertGreater(sm["save_energy_Wh"], td["save_energy_Wh"])
+
+    def test_timing_scales_carbon_only(self):
+        live = {
+            "ci_g_per_kwh": 400.0,
+            "ci_forecast": [
+                {"t": "2026-07-28T13:00", "ci": 100.0},
+                {"t": "2026-07-28T20:00", "ci": 500.0},
+            ],
+        }
+        # Baseline must use same live CI for apples-to-apples ratio
+        res = engine.compute(self.entries, COEFFS, "temperate", live=live)
+        best, worst = counterfactuals.scenario_timing(res, live)
+        self.assertIsNotNone(best)
+        self.assertTrue(best["energy_same"] or best["kind"] == "timing_best")
+        self.assertAlmostEqual(best["energy_Wh"], res["energy_Wh"][0], places=6)
+        self.assertAlmostEqual(best["carbon_g"], res["carbon_g"][0] * (100.0 / 400.0), places=5)
+        self.assertGreater(best["save_carbon_g"], 0)
+        self.assertIsNotNone(worst)
+        self.assertLess(worst["save_carbon_g"], 0)
+
+    def test_session_report_usage_sections(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+            for mid, (tin, tc, to, model) in self.entries.items():
+                f.write(json.dumps({
+                    "type": "assistant",
+                    "message": {
+                        "id": mid,
+                        "model": model,
+                        "usage": {
+                            "input_tokens": tin,
+                            "cache_creation_input_tokens": 0,
+                            "cache_read_input_tokens": tc,
+                            "output_tokens": to,
+                        },
+                    },
+                }) + "\n")
+            path = f.name
+        try:
+            md = report.session_report(COEFFS, "temperate", transcript=path, live=None)
+        finally:
+            os.unlink(path)
+        self.assertIn("### Session", md)
+        self.assertIn("### Composition of energy", md)
+        self.assertIn("### What's contributing to your footprint?", md)
+        self.assertIn("### What you could have saved", md)
+        self.assertIn("### By model", md)
+        self.assertIn("scenario envelope", md.lower())
+        self.assertIn("modeled counterfactual", md.lower())
+
+    def test_whatif_keeps_tier_marker(self):
+        md = report.whatif_report(COEFFS, "temperate", "opus", 500000)
+        self.assertIn("← this estimate", md)
+        self.assertIn("location-based", md)
+        self.assertIn("### What you could have saved", md)
 
 
 def load_tests(loader, tests, pattern):  # keep class order deterministic

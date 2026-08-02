@@ -1,6 +1,10 @@
 """Session reports and what-if estimates, rendered as markdown for the
 /footprint command and the CLI.
 
+Layout follows Claude Code's /usage cognitive pattern:
+  Session totals → composition bars → contribution insights →
+  counterfactual savings → by-model detail → decisions.
+
 Display rules are inherited from METHODOLOGY.md §5.2 via engine.fmt_sig:
 2 sig figs, ranges always shown, carbon always basis-labeled, no fabricated
 zeros — a section that has no data says so.
@@ -9,7 +13,16 @@ import glob
 import os
 import re
 
+from .counterfactuals import all_counterfactuals, format_savings_section
 from .engine import compute, fmt_sig, fmt_tok, parse_transcript, tier_for
+from .insights import (
+    by_model_rows,
+    composition_lines,
+    contribution_insights,
+    energy_by_token_class,
+    format_insights_section,
+    models_summary,
+)
 from .recommend import tier_alternatives, when_advice, which_advice
 
 TOKEN_RE = re.compile(r"^(\d+(?:\.\d+)?)([kKmM]?)$")
@@ -86,46 +99,77 @@ def _equivalences(res, coeffs):
         out.append("≈ %s smartphone charges" % fmt_sig(e / ph["central"]))
     led = anchors.get("led_bulb_W")
     if led and e > 0:
-        out.append("≈ %s min of a %sW LED bulb" % (fmt_sig(e / led["central"] * 60), fmt_sig(led["central"])))
+        out.append(
+            "≈ %s min of a %sW LED bulb"
+            % (fmt_sig(e / led["central"] * 60), fmt_sig(led["central"]))
+        )
     bottle = anchors.get("water_bottle_mL")
     if bottle and w > 0:
-        out.append("≈ %s%% of a %s mL water bottle" % (fmt_sig(w / bottle["central"] * 100), fmt_sig(bottle["central"])))
+        out.append(
+            "≈ %s%% of a %s mL water bottle"
+            % (fmt_sig(w / bottle["central"] * 100), fmt_sig(bottle["central"]))
+        )
     car = anchors.get("ice_car_gCO2e_per_km")
     if car and c > 0:
-        out.append("≈ driving %s m in an average gas car" % fmt_sig(c / car["central"] * 1000))
+        out.append(
+            "≈ driving %s m in an average gas car"
+            % fmt_sig(c / car["central"] * 1000)
+        )
     return out
 
 
-def _footprint_block(res, live):
-    e, w, c = res["energy_Wh"], res["water_mL"], res["carbon_g"]
-    q = " (includes unknown-model entries priced at mid tier)" if res["unknown_model"] else ""
+def _carbon_basis_line(res, live):
     if res["ci_basis"] == "live-grid":
         stale = " ⚠stale" if live and live.get("stale") else ""
-        c_tag = "live grid %s g/kWh, %s%s" % (
-            fmt_sig(res["ci_g_per_kwh"]), (live or {}).get("zone") or "?", stale
+        zone = (live or {}).get("zone") or "?"
+        return "live-grid %s g/kWh · %s%s" % (
+            fmt_sig(res["ci_g_per_kwh"]),
+            zone,
+            stale,
         )
-    else:
-        c_tag = "location-based static avg %g g/kWh (Google fleet proxy)" % res["ci_g_per_kwh"]
-    w_tag = (
-        "live-weather WUE (modeled economizer ramp)"
-        if res["wue_basis"] == "live-weather"
-        else "region preset"
-    )
-    return [
-        "| | central | low | high | basis |",
-        "|---|---|---|---|---|",
-        "| ⚡ energy | **%s Wh** | %s | %s | modeled per-token tiers%s |"
-        % (fmt_sig(e[0]), fmt_sig(e[1]), fmt_sig(e[2]), q),
-        "| 💧 water | **~%s mL** | %s | %s | %s |"
-        % (fmt_sig(w[0]), fmt_sig(w[1]), fmt_sig(w[2]), w_tag),
-        "| 🌫 carbon | **%s gCO2e** | %s | %s | %s |"
-        % (fmt_sig(c[0]), fmt_sig(c[1]), fmt_sig(c[2]), c_tag),
+    return "location-based static avg %g g/kWh (Google fleet proxy)" % res[
+        "ci_g_per_kwh"
     ]
 
 
+def _water_basis_label(res):
+    if res["wue_basis"] == "live-weather":
+        return "live-weather WUE (modeled economizer ramp)"
+    return "region preset"
+
+
+def _metrics_block(res, live, models=None, q_note="", heading="### Session"):
+    """Usage-style fixed-width totals block."""
+    e, w, c = res["energy_Wh"], res["water_mL"], res["carbon_g"]
+    t = res["tokens"]
+    lines = [
+        heading,
+        "",
+        "```",
+        "Energy:   %s Wh  [%s–%s]%s"
+        % (fmt_sig(e[0]), fmt_sig(e[1]), fmt_sig(e[2]), q_note),
+        "Water:    ~%s mL  [%s–%s]  (%s)"
+        % (fmt_sig(w[0]), fmt_sig(w[1]), fmt_sig(w[2]), _water_basis_label(res)),
+        "Carbon:   %s gCO2e  [%s–%s]  (%s)"
+        % (fmt_sig(c[0]), fmt_sig(c[1]), fmt_sig(c[2]), _carbon_basis_line(res, live)),
+        "Tokens:   %s in · %s cache · %s out"
+        % (fmt_tok(t["in"]), fmt_tok(t["cache"]), fmt_tok(t["out"])),
+    ]
+    if models:
+        lines.append("Models:   %s" % ", ".join(models))
+    lines.append("```")
+    return lines
+
+
+def _envelope_footer():
+    return (
+        "_Estimates, not measurements; low–high figures are a scenario envelope, "
+        "not a confidence interval. See METHODOLOGY.md and LIMITATIONS_AND_FAQ.md._"
+    )
+
+
 def session_report(coeffs, region, transcript=None, live=None):
-    """Full markdown report for a real session. Returns a string."""
-    lines = ["## Session footprint", ""]
+    """Full markdown report for a real session (Usage-shaped). Returns a string."""
     concurrent = 0
     if transcript:
         tpath = transcript
@@ -136,6 +180,7 @@ def session_report(coeffs, region, transcript=None, live=None):
             "## Session footprint\n\nNo transcript found for this project — "
             "nothing to report (and no numbers will be invented)."
         )
+    lines = []
     if concurrent:
         lines += [
             "_⚠ %d other session(s) in this project were active in the last "
@@ -149,34 +194,50 @@ def session_report(coeffs, region, transcript=None, live=None):
         return "## Session footprint\n\nTranscript has no assistant usage entries yet."
 
     res = compute(entries, coeffs, region, live=live)
-    lines += _footprint_block(res, live)
+    q_note = "  (includes unknown-model entries at mid central + wide envelope)" if res[
+        "unknown_model"
+    ] else ""
+    models = models_summary(entries, coeffs)
+    lines += ["## Session footprint", ""]
+    lines += _metrics_block(res, live, models=models, q_note=q_note)
 
     eq = _equivalences(res, coeffs)
     if eq:
         lines += ["", "*" + " · ".join(eq) + "*"]
 
-    # Per-model token/energy breakdown
-    by_model = {}
-    for key, (tin, tcache, tout, model) in entries.items():
-        d = by_model.setdefault(model or "unknown", {})
-        d["in"] = d.get("in", 0) + tin
-        d["cache"] = d.get("cache", 0) + tcache
-        d["out"] = d.get("out", 0) + tout
-    lines += ["", "### By model", "", "| model | tier | in | cache read | out | energy (central) |", "|---|---|---|---|---|---|"]
-    for model, t in sorted(by_model.items(), key=lambda kv: -sum(kv[1].values())):
-        tier_name, known = tier_for(model, coeffs["model_tier_lookup"])
-        sub = {"m": (t["in"], t["cache"], t["out"], model)}
-        sub_res = compute(sub, coeffs, region, live=live)
+    # Composition bars
+    parts = energy_by_token_class(entries, coeffs, region, live=live)
+    lines += [""] + composition_lines(parts, res["energy_Wh"][0])
+
+    # Contribution insights
+    insights = contribution_insights(entries, coeffs, region, res, live=live)
+    lines += [""] + format_insights_section(insights)
+
+    # Counterfactual savings
+    rows = all_counterfactuals(entries, coeffs, region, res, live=live)
+    lines += [""] + format_savings_section(rows)
+
+    # By model detail
+    lines += [
+        "",
+        "### By model",
+        "",
+        "| model | tier | in | cache read | out | energy (central) |",
+        "|---|---|---|---|---|---|",
+    ]
+    for model, tier_name, known, tin, tcache, tout, ewh in by_model_rows(
+        entries, coeffs, region, live=live
+    ):
         lines.append(
             "| %s | %s%s | %s | %s | %s | %s Wh |"
             % (
                 model,
                 tier_name,
                 "" if known else "?",
-                fmt_tok(t["in"]),
-                fmt_tok(t["cache"]),
-                fmt_tok(t["out"]),
-                fmt_sig(sub_res["energy_Wh"][0]),
+                fmt_tok(tin),
+                fmt_tok(tcache),
+                fmt_tok(tout),
+                fmt_sig(ewh),
             )
         )
 
@@ -196,40 +257,75 @@ def session_report(coeffs, region, transcript=None, live=None):
             "with FOOTPRINT_SITE + FOOTPRINT_EM_TOKEN set) — static coefficients used, "
             "labeled above._",
         ]
-    lines += ["", "_Estimates, not measurements; low–high figures are a scenario envelope, "
-                  "not a confidence interval. See METHODOLOGY.md and LIMITATIONS_AND_FAQ.md._"]
+    lines += ["", _envelope_footer()]
     return "\n".join(lines)
 
 
-def whatif_report(coeffs, region, model, total_tokens, profile=DEFAULT_PROFILE, explicit=None, live=None):
+def whatif_report(
+    coeffs,
+    region,
+    model,
+    total_tokens,
+    profile=DEFAULT_PROFILE,
+    explicit=None,
+    live=None,
+):
     entries = whatif_entries(model, total_tokens or 0, profile, explicit)
     tin, tcache, tout, _ = entries["whatif"]
     tier_name, known = tier_for(model, coeffs["model_tier_lookup"])
     res = compute(entries, coeffs, region, live=live)
+    q_note = "" if known else "  (model not recognized — mid central + wide envelope)"
     lines = [
-        "## What-if: %s tokens on `%s` (%s tier%s, '%s' split: %s in / %s cache / %s out)"
+        "## What-if footprint",
+        "",
+        "### Workload",
+        "",
+        "```",
+        "Model:    %s (%s tier%s)"
+        % (model, tier_name, "" if known else ", unrecognized"),
+        "Split:    %s — %s in / %s cache / %s out"
         % (
-            fmt_tok(tin + tcache + tout),
-            model,
-            tier_name,
-            "" if known else " — model not recognized, defaulted",
             "explicit" if explicit else profile,
             fmt_tok(tin),
             fmt_tok(tcache),
             fmt_tok(tout),
         ),
+        "Tokens:   %s total" % fmt_tok(tin + tcache + tout),
+        "```",
         "",
     ]
-    lines += _footprint_block(res, live)
+    lines += _metrics_block(
+        res,
+        live,
+        models=["%s (%s%s)" % (model, tier_name, "" if known else "?")],
+        q_note=q_note,
+        heading="### Estimate",
+    )
+
     eq = _equivalences(res, coeffs)
     if eq:
         lines += ["", "*" + " · ".join(eq) + "*"]
 
+    parts = energy_by_token_class(entries, coeffs, region, live=live)
+    lines += [""] + composition_lines(parts, res["energy_Wh"][0])
+
+    # Counterfactuals for what-if too
+    rows = all_counterfactuals(entries, coeffs, region, res, live=live)
+    lines += [""] + format_savings_section(rows)
+
     alts = tier_alternatives(res["tokens"], coeffs)
-    lines += ["", "### Same tokens on each tier", "", "| tier | energy central | low–high |", "|---|---|---|"]
+    lines += [
+        "",
+        "### Same tokens on each tier",
+        "",
+        "| tier | energy central | low–high |",
+        "|---|---|---|",
+    ]
     for name, e, _desc in alts:
         marker = " ← this estimate" if name == tier_name else ""
-        lines.append("| %s | %s Wh%s | %s–%s |" % (name, fmt_sig(e[0]), marker, fmt_sig(e[1]), fmt_sig(e[2])))
-    lines += ["", "_Estimates, not measurements; low–high figures are a scenario envelope, "
-                  "not a confidence interval. See METHODOLOGY.md._"]
+        lines.append(
+            "| %s | %s Wh%s | %s–%s |"
+            % (name, fmt_sig(e[0]), marker, fmt_sig(e[1]), fmt_sig(e[2]))
+        )
+    lines += ["", _envelope_footer()]
     return "\n".join(lines)

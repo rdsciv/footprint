@@ -1,6 +1,6 @@
 ---
 name: footprint
-description: Report the estimated energy (Wh), water (mL), and carbon (gCO2e) footprint of the current Claude Code session, or estimate a hypothetical usage ("what-if"). Use when the user runs /footprint, or asks about the environmental cost, energy use, water use, or carbon emissions of their AI usage. With no arguments it reports the current session; with arguments like "opus 500k" or "sonnet 2M chat" it estimates a hypothetical run.
+description: Report the estimated energy (Wh), water (mL), and carbon (gCO2e) footprint of the current Claude Code session in a /usage-style layout (totals, composition bars, contribution insights, counterfactual savings), or estimate a hypothetical usage ("what-if"). Use when the user runs /footprint, or asks about the environmental cost, energy use, water use, carbon emissions, or what they could have saved with a different model, timing, or prompt shape.
 ---
 
 # Footprint: session environmental telemetry
@@ -8,7 +8,8 @@ description: Report the estimated energy (Wh), water (mL), and carbon (gCO2e) fo
 All numbers come from the `modelfootprint` engine in this plugin/repo — never
 estimate or recall footprint figures yourself; run the CLI and relay its
 output. The engine's display rules (uncertainty ranges, accounting-basis
-labels) are part of the methodology: keep them intact when presenting.
+labels, scenario envelopes, modeled counterfactuals) are part of the
+methodology: keep them intact when presenting.
 
 ## Locating the CLI
 
@@ -22,16 +23,30 @@ All commands below are run as:
 PYTHONPATH="$MF_ROOT" python3 -m modelfootprint <command>
 ```
 
-## No arguments → session report
+## No arguments → session report (Usage-style)
 
 1. Refresh live grid/weather signals (safe with nothing configured; failures
    are recorded, never fatal, ~seconds):
    `PYTHONPATH="$MF_ROOT" python3 -m modelfootprint refresh`
 2. `PYTHONPATH="$MF_ROOT" python3 -m modelfootprint report`
-3. Relay the markdown report verbatim (it is already formatted), then add at
-   most 2 sentences of your own context if something stands out (e.g. an
-   unusually cache-heavy session). Do not re-round or restate numbers with
-   more precision than shown.
+3. Relay the markdown report **verbatim** (it is already formatted like
+   Claude's `/usage` panel). Optionally add at most 2 sentences of context if
+   something stands out. Do **not** re-round numbers or invent savings.
+
+### What the report contains
+
+| Section | Purpose (mirrors `/usage`) |
+|---------|----------------------------|
+| **Session** | Energy / water / carbon totals with [low–high] envelopes + token mix |
+| **Composition of energy** | ASCII bars: share of central energy from cache / output / fresh input |
+| **What's contributing…** | % drivers + one action each (tier mix, cache shape, prefill, …) |
+| **What you could have saved** | Modeled counterfactuals: tier steps, all-mid/small, clean-hour carbon, profile reshape |
+| **By model** | Per-model tokens + energy |
+| **Decisions** | WHEN (grid timing) and WHICH (tier) advice |
+
+Counterfactuals are **modeled scenarios**, not promises the user can force
+provider routing or always defer interactive work. Keep that framing if you
+paraphrase.
 
 The report finds the current session transcript automatically (most recently
 modified transcript for this project).
