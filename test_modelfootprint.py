@@ -543,6 +543,27 @@ class Test10InsightsAndCounterfactuals(unittest.TestCase):
         self.assertIn("### What you could have saved", md)
 
 
+class Test11SitePublish(unittest.TestCase):
+    """GitHub Pages publishes site/ as root — coefficients must live there
+    as a byte-identical copy of the engine file."""
+
+    def test_site_coefficients_copy_matches(self):
+        src = os.path.join(HERE, "modelfootprint", "coefficients.json")
+        dst = os.path.join(HERE, "site", "coefficients.json")
+        self.assertTrue(
+            os.path.isfile(dst),
+            "site/coefficients.json missing — copy from modelfootprint/",
+        )
+        with open(src, encoding="utf-8") as a, open(dst, encoding="utf-8") as b:
+            self.assertEqual(json.load(a), json.load(b))
+
+    def test_site_fetches_local_coefficients(self):
+        with open(os.path.join(HERE, "site", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn('fetch("./coefficients.json")', html)
+        self.assertNotIn("../modelfootprint/coefficients.json", html)
+
+
 def load_tests(loader, tests, pattern):  # keep class order deterministic
     return tests
 

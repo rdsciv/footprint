@@ -3,124 +3,197 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>footprint — the energy, water &amp; carbon of your AI prompts</title>
-<meta name="description" content="Estimate the energy (Wh), water (mL) and carbon (gCO2e) of LLM usage — with honest uncertainty ranges, a duck-curve timing explorer, and a model comparison. From the footprint open-source project.">
+<title>footprint — energy, water &amp; carbon of an AI session</title>
+<meta name="description" content="Estimate the energy (Wh), water (mL) and carbon (gCO2e) of LLM usage — with honest uncertainty ranges, a duck-curve timing explorer, and a model comparison.">
 <meta property="og:title" content="footprint — what does your AI usage actually cost?">
-<meta property="og:description" content="Energy, water & carbon per prompt, with honest uncertainty ranges. Try the duck-curve explorer: the same prompt can carry >10x the carbon depending on the hour.">
+<meta property="og:description" content="Energy, water & carbon per session, with honest uncertainty ranges. The same tokens can carry a very different carbon depending on the hour.">
 <meta property="og:type" content="website">
-<style>
-:root{
-  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
-  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
-  --blue:#2a78d6; --blue-med:#256abf; --blue-deep:#104281; --red:#e34948;
-  --seq250:#86b6ef; --seq450:#2a78d6; --seq650:#104281;
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
-    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
-    --blue:#3987e5; --blue-med:#2a78d6; --blue-deep:#86b6ef; --red:#e66767;
-    --seq250:#184f95; --seq450:#3987e5; --seq650:#9ec5f4;
-  }
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--page);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
-main{max-width:900px;margin:0 auto;padding:24px 16px 64px}
-h1{font-size:1.7rem;margin:.4em 0 .1em}
-h2{font-size:1.15rem;margin:2.2em 0 .4em}
-p{color:var(--ink2)}
-a{color:var(--blue-med)}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;margin:14px 0}
-.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:end;margin-bottom:8px}
-.controls label{display:flex;flex-direction:column;font-size:.78rem;color:var(--muted);gap:4px;min-width:120px}
-select,input[type=range]{accent-color:var(--blue);font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--border);border-radius:6px;padding:6px}
-input[type=range]{border:0;background:transparent;padding:0;min-width:180px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px}
-.tile{background:var(--page);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
-.tile .v{font-size:1.5rem;font-weight:650}
-.tile .r{font-size:.78rem;color:var(--muted)}
-.tile .l{font-size:.78rem;color:var(--ink2);margin-top:2px}
-.eq{font-size:.85rem;color:var(--ink2);margin-top:10px}
-.note{font-size:.78rem;color:var(--muted)}
-.chartwrap{overflow-x:auto}
-svg text{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
-.tooltip{position:fixed;pointer-events:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;
-  padding:6px 9px;font-size:.78rem;color:var(--ink);box-shadow:0 2px 10px rgba(0,0,0,.12);display:none;z-index:10}
-button.copy{font:inherit;background:var(--blue);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
-button.copy:hover{background:var(--blue-med)}
-.err{color:var(--red);font-weight:600}
-footer{margin-top:40px;font-size:.8rem;color:var(--muted)}
-table{border-collapse:collapse;font-size:.85rem;width:100%}
-td,th{text-align:left;padding:4px 10px 4px 0;border-bottom:1px solid var(--grid);color:var(--ink2)}
-th{color:var(--muted);font-weight:500}
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
-<main>
-<h1>footprint</h1>
-<p>What does your AI usage actually cost in <strong>energy, water and carbon</strong>?
-Estimates with honest uncertainty ranges — every coefficient sourced, labeled
-<em>measured / modeled / speculative</em>, and versioned in
-<a href="../modelfootprint/coefficients.json">coefficients.json</a>. Live in your Claude Code statusline via the
-<a href="https://github.com/rdsciv/footprint">open-source repo</a>.</p>
-<p id="loadstate" class="note">loading coefficients…</p>
+<a class="skip" href="#estimate">Skip to estimator</a>
 
-<h2>1 · Estimate a workload</h2>
-<div class="card" id="calc" hidden>
-  <div class="controls">
-    <label>model class
-      <select id="tier">
-        <option value="small">small — Haiku / Flash / nano class</option>
-        <option value="mid" selected>mid — Sonnet / mini class</option>
-        <option value="frontier">frontier — Opus / GPT-5 / Pro class</option>
-      </select></label>
-    <label>workload shape
-      <select id="profile">
-        <option value="chat">chat (80% in / 20% out)</option>
-        <option value="agent" selected>coding agent (90% cache reads)</option>
-        <option value="out-heavy">generation-heavy (80% out)</option>
-      </select></label>
-    <label>climate region (water)
-      <select id="region"></select></label>
-    <label><span>total tokens: <strong id="toklabel">500k</strong></span>
-      <input type="range" id="tokens" min="3" max="7" step="0.05" value="5.699"></label>
+<header class="nav" id="nav">
+  <div class="nav__inner">
+    <a class="nav__brand" href="#top">footprint</a>
+    <button class="searchpill" id="searchpill" type="button" aria-haspopup="dialog" aria-controls="cmdk" aria-label="Jump to a section (⌘K)">
+      <span class="searchpill__text">Jump to a section…</span>
+      <span class="searchpill__kbd" aria-hidden="true"><kbd>⌘</kbd>K</span>
+    </button>
+    <div class="nav__right">
+      <a class="nav__link" href="https://github.com/rdsciv/footprint">GitHub</a>
+      <a class="btn" href="#install">Install</a>
+    </div>
   </div>
-  <div class="tiles" id="tiles"></div>
-  <div class="eq" id="equiv"></div>
-  <p class="note" id="basisnote"></p>
-  <button class="copy" id="share">Copy result card</button>
+</header>
+
+<div class="cmdk" id="cmdk" aria-hidden="true">
+  <div class="cmdk__backdrop" data-close></div>
+  <div class="cmdk__panel" role="dialog" aria-modal="true" aria-labelledby="cmdk-label">
+    <div class="cmdk__field">
+      <span id="cmdk-label" class="visually-hidden">Jump</span>
+      <input id="cmdk-input" type="search" placeholder="Jump to a section…" autocomplete="off">
+      <kbd>esc</kbd>
+    </div>
+    <div class="cmdk__results" id="cmdk-results"></div>
+    <div class="cmdk__foot">
+      <span>↑↓ move</span><span>↵ open</span><span>esc close</span>
+    </div>
+  </div>
 </div>
 
-<h2>2 · When you prompt: the duck curve</h2>
-<p>The <em>same workload</em> carries very different carbon depending on the hour, because the
-grid's marginal generator changes. Hover / tap the curve — stylized from documented CAISO
-anchors (≈0 g midday surplus, 500–630 g evening ramp).
-Full story: <a href="../docs/02-duck-curve-and-grid.md">doc 02</a>.</p>
-<div class="card chartwrap"><div id="duck"></div><p class="note" id="ducknote"></p></div>
+<header class="hero" id="top">
+  <p class="hero__figure tnum" id="herofig">—<span class="hero__unit">×</span></p>
+  <div class="hero__copy">
+    <h1 class="hero__headline">The same tokens can carry a different carbon after sunset.</h1>
+    <p class="hero__note" id="heronote">Stylized CAISO-shaped marginal intensity, not your live grid.</p>
+    <a class="btn" href="#estimate">Estimate this workload</a>
+    <div class="hero__meta" id="herometa"></div>
+  </div>
+</header>
 
-<h2>3 · Which model: energy per tier</h2>
-<p>Energy for the workload configured above, re-priced on each model tier.
-Whiskers are the propagated low–high bounds (all tier coefficients are MODELED — 2–3× bands).
-Decision guide: <a href="../docs/05-which-model-when.md">doc 05</a>.</p>
-<div class="card chartwrap"><div id="tiers"></div></div>
+<main>
+<p id="loadstate" class="note" style="padding:1rem var(--page-gutter) 0">loading coefficients…</p>
 
-<h2>Read the deep dives</h2>
-<table>
-<tr><th>doc</th><th>one-line takeaway</th></tr>
-<tr><td><a href="../docs/01-energy-of-inference.md">01 · Energy of inference</a></td><td>the honest unit is the token, priced by class, with a range</td></tr>
-<tr><td><a href="../docs/02-duck-curve-and-grid.md">02 · The duck curve</a></td><td>&gt;10× carbon swing by hour of day on solar-heavy grids</td></tr>
-<tr><td><a href="../docs/03-fuel-mix-and-diesel-backup.md">03 · Fuel mix &amp; diesel backup</a></td><td>wind 11 g vs diesel-backup ~840 gCO2e/kWh — a 20–80× ladder</td></tr>
-<tr><td><a href="../docs/04-water.md">04 · Water</a></td><td>the power plant evaporates more water for your prompt than the datacenter</td></tr>
-<tr><td><a href="../docs/05-which-model-when.md">05 · Which model, when</a></td><td>one tier down + batch API = cheapest and cleanest</td></tr>
-</table>
+<section class="section" id="estimate">
+  <div class="section__head">
+    <h2 class="section__title">Estimate a workload</h2>
+    <p class="section__lede">Energy, water and carbon for a token mix you choose. Every figure is a scenario envelope — every factor at its low or high bound at once — not a confidence interval.</p>
+  </div>
+  <div class="card" id="calc" hidden>
+    <div class="controls">
+      <label>model class
+        <select id="tier">
+          <option value="small">small — Haiku / Flash / nano class</option>
+          <option value="mid" selected>mid — Sonnet / mini class</option>
+          <option value="frontier">frontier — Opus / GPT-5 / Pro class</option>
+        </select></label>
+      <label>workload shape
+        <select id="profile">
+          <option value="chat">chat (80% in / 20% out)</option>
+          <option value="agent" selected>coding agent (90% cache reads)</option>
+          <option value="out-heavy">generation-heavy (80% out)</option>
+        </select></label>
+      <label>climate region (water)
+        <select id="region"></select></label>
+      <label><span>total tokens: <strong id="toklabel">500k</strong></span>
+        <input type="range" id="tokens" min="3" max="7" step="0.05" value="5.699"></label>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="eq" id="equiv"></div>
+    <p class="note" id="basisnote"></p>
+    <button class="btn" type="button" id="share">Copy result card</button>
+  </div>
+</section>
 
-<footer>
-Estimates, not measurements — directional by design. Methodology, limitations and every source:
-<a href="https://github.com/rdsciv/footprint">github.com/rdsciv/footprint</a>.
-Palette: validated reference dataviz palette; charts carry direct labels and ranges.
-</footer>
+<section class="section" id="when">
+  <div class="section__head">
+    <h2 class="section__title">When you prompt: the duck curve</h2>
+    <p class="section__lede">The same workload carries very different carbon depending on the hour, because the grid’s marginal generator changes. Hover or tap the curve — stylized from documented CAISO anchors (≈0&nbsp;g midday surplus, 500–630&nbsp;g evening ramp).</p>
+  </div>
+  <div class="card chartwrap"><div id="duck"></div><p class="note" id="ducknote"></p></div>
+</section>
+
+<section class="section" id="which">
+  <div class="section__head">
+    <h2 class="section__title">Which model: energy per tier</h2>
+    <p class="section__lede">Energy for the workload configured above, re-priced on each model tier. Whiskers are the propagated low–high bounds. All tier coefficients are MODELED — 2–3× bands.</p>
+  </div>
+  <div class="card chartwrap"><div id="tiers"></div></div>
+</section>
+
+<section class="section" id="savings">
+  <div class="section__head">
+    <h2 class="section__title">What you could have saved</h2>
+    <p class="section__lede">Modeled scenarios on the same token mix. Not a promise you can force provider routing or always defer interactive work.</p>
+  </div>
+  <div class="savings" id="savingsrows"></div>
+</section>
+
+<section class="section" id="receipts">
+  <div class="section__head">
+    <h2 class="section__title">Receipts</h2>
+    <p class="section__lede">Measured anchors stay in their own units. They are not substituted into the per-token math, because each disclosure’s workload shape differs from an arbitrary session.</p>
+  </div>
+  <div class="receipts">
+    <ul class="anchor-list">
+      <li>
+        <strong>0.24 Wh · 0.26 mL · 0.03 gCO2e</strong>
+        Google, median Gemini Apps text prompt, full-stack (arXiv:2508.15734). Carbon figure is market-based — not comparable to this tool’s location-based default.
+      </li>
+      <li>
+        <strong>1.14 gCO2e · 45 mL / 400-token page</strong>
+        Mistral Large 2, ADEME + Carbone 4 LCA. Wider scope: includes amortized training.
+      </li>
+      <li>
+        <strong>~0.3–0.34 Wh / typical query</strong>
+        Epoch AI modeled ChatGPT-class estimate and Altman’s public figure. A sanity band, not a coefficient.
+      </li>
+    </ul>
+    <div>
+      <table class="compare">
+        <thead>
+          <tr><th></th><th>footprint</th><th>EcoLogits statusline</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Tokens priced</td><td>in + cache-read + out</td><td>output only</td></tr>
+          <tr><td>Range</td><td>scenario envelope on screen</td><td>midpoint</td></tr>
+          <tr><td>Grid</td><td>site preset or live EM / WattTime</td><td>world-average WOR default</td></tr>
+          <tr><td>Runtime</td><td>stdlib, offline statusline</td><td>hosted API</td></tr>
+          <tr><td>Water</td><td>WUE on IT kWh + EWIF on facility kWh</td><td>EcoLogits WCF</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="install">
+  <div class="section__head">
+    <h2 class="section__title">Install</h2>
+    <p class="section__lede">Python 3, stdlib only. The statusline never touches the network; live grid and weather refresh into an hourly cache.</p>
+  </div>
+  <div class="install">
+<pre><code>git clone https://github.com/rdsciv/footprint &amp;&amp; cd footprint
+pip install .
+
+# statusline — .claude/settings.json
+{ "statusLine": { "type": "command", "command": "python3 /path/to/footprint/footprint_statusline.py" } }
+
+python3 -m modelfootprint report
+python3 -m modelfootprint whatif opus 500k</code></pre>
+  </div>
+  <p class="note" style="margin-top:1rem">Optional live grid: <code>FOOTPRINT_SITE=virginia</code> and a free Electricity Maps token. Deep dives live in the repo.</p>
+  <table class="docs" style="margin-top:1.5rem">
+    <tr><th>doc</th><th>one-line takeaway</th></tr>
+    <tr><td><a href="https://github.com/rdsciv/footprint/blob/main/docs/01-energy-of-inference.md">01 · Energy of inference</a></td><td>the honest unit is the token, priced by class, with a range</td></tr>
+    <tr><td><a href="https://github.com/rdsciv/footprint/blob/main/docs/02-duck-curve-and-grid.md">02 · The duck curve</a></td><td>&gt;10× carbon swing by hour of day on solar-heavy grids</td></tr>
+    <tr><td><a href="https://github.com/rdsciv/footprint/blob/main/docs/03-fuel-mix-and-diesel-backup.md">03 · Fuel mix &amp; diesel backup</a></td><td>wind 11 g vs diesel-backup ~840 gCO2e/kWh</td></tr>
+    <tr><td><a href="https://github.com/rdsciv/footprint/blob/main/docs/04-water.md">04 · Water</a></td><td>the power plant usually evaporates more water than the datacenter</td></tr>
+    <tr><td><a href="https://github.com/rdsciv/footprint/blob/main/docs/05-which-model-when.md">05 · Which model, when</a></td><td>one tier down + batch API is cheapest and cleanest</td></tr>
+  </table>
+</section>
 </main>
+
+<footer class="foot-stmt">
+  <p class="foot-stmt__line">Estimates, not measurements. Directional by design.</p>
+  <div class="foot-stmt__meta">
+    <span>
+      <a href="https://github.com/rdsciv/footprint">github.com/rdsciv/footprint</a>
+      <a href="https://github.com/rdsciv/footprint/blob/main/METHODOLOGY.md">Methodology</a>
+      <a href="https://github.com/rdsciv/footprint/blob/main/LIMITATIONS_AND_FAQ.md">Limitations</a>
+    </span>
+    <span>MIT · coefficients <span id="coeffver"></span></span>
+  </div>
+</footer>
+
 <div class="tooltip" id="tip"></div>
+<style>
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+</style>
 <script src="engine.js"></script>
 <script>
 "use strict";
@@ -128,8 +201,20 @@ const $ = id => document.getElementById(id);
 const MF = window.MFEngine;
 const fmtSig = MF.fmtSig, fmtTok = MF.fmtTok;
 const PROFILES = {chat:[0.8,0,0.2], agent:[0.05,0.9,0.05], "out-heavy":[0.2,0,0.8]};
+const TIER_DOWN = {frontier:"mid", mid:"small", small:"small"};
 const DUCK = [420,420,415,410,415,430,400,300,150,60,20,10,10,15,40,120,280,480,590,630,560,500,460,430];
-let C = null; // coefficients.json
+const JUMPS = [
+  {id:"estimate", label:"Estimate a workload", hint:"calculator"},
+  {id:"when", label:"When you prompt", hint:"duck curve"},
+  {id:"which", label:"Which model", hint:"tier bars"},
+  {id:"savings", label:"What you could have saved", hint:"modeled"},
+  {id:"receipts", label:"Receipts", hint:"sources"},
+  {id:"install", label:"Install", hint:"CLI"},
+];
+let C = null;
+let pinned = 19;
+let last = null;
+
 function currentTokens(){
   const total = Math.round(Math.pow(10, +$("tokens").value));
   const [fi,fc,fo] = PROFILES[$("profile").value];
@@ -145,35 +230,88 @@ function equivalences(e,w,c){
   out.push("≈ "+fmtSig(c/a.ice_car_gCO2e_per_km.central*1000)+" m in an average gas car");
   return out.join(" · ");
 }
-let last = null;
+function minDuck(){ return Math.min.apply(null, DUCK); }
+
+function renderHero(){
+  const minCI = minDuck();
+  const ratio = DUCK[pinned] / Math.max(minCI, 1);
+  $("herofig").innerHTML = fmtSig(ratio) + '<span class="hero__unit">×</span>';
+  $("heronote").textContent =
+    "Stylized CAISO-shaped marginal intensity, not your live grid. This curve’s pinned hour vs its cleanest hour is " +
+    fmtSig(ratio) + "×. Documented swing on solar-heavy grids is >10×.";
+  if(last){
+    const nowC = last.e[0]/1000*DUCK[pinned];
+    const noonC = last.e[0]/1000*minCI;
+    $("herometa").textContent =
+      "Pinned "+String(pinned).padStart(2,"0")+":00 · workload ≈ "+fmtSig(nowC)+" gCO2e vs "+fmtSig(noonC)+" g at the cleanest hour.";
+  }
+}
+
 function renderCalc(){
   const tk = currentTokens();
   $("toklabel").textContent = fmtTok(tk.total);
   const res = MF.compute(C, $("tier").value, tk, $("region").value);
   const e = res.energy, w = res.water, c = res.carbon, ci = res.ci;
-  last = {e,w,c,tk,ci};
-  const tile=(icon,name,v,unit,lo,hi)=>`<div class="tile"><div class="l">${icon} ${name}</div>
-    <div class="v">${v}<span style="font-size:.8rem;font-weight:400"> ${unit}</span></div>
+  last = {e,w,c,tk,ci,tier:$("tier").value, region:$("region").value};
+  const tile=(name,v,unit,lo,hi)=>`<div class="tile"><div class="l">${name}</div>
+    <div class="v">${v}<span style="font-size:.7em;font-weight:400"> ${unit}</span></div>
     <div class="r">range ${lo} – ${hi}</div></div>`;
   $("tiles").innerHTML =
-    tile("⚡","energy",fmtSig(e[0]),"Wh",fmtSig(e[1]),fmtSig(e[2])) +
-    tile("💧","water (consumed)","~"+fmtSig(w[0]),"mL",fmtSig(w[1]),fmtSig(w[2])) +
-    tile("🌫","carbon",fmtSig(c[0]),"gCO2e",fmtSig(c[1]),fmtSig(c[2]));
+    tile("energy",fmtSig(e[0]),"Wh",fmtSig(e[1]),fmtSig(e[2])) +
+    tile("water (consumed)","~"+fmtSig(w[0]),"mL",fmtSig(w[1]),fmtSig(w[2])) +
+    tile("carbon",fmtSig(c[0]),"gCO2e",fmtSig(c[1]),fmtSig(c[2]));
   $("equiv").textContent = equivalences(e[0],w[0],c[0]);
   $("basisnote").textContent = "Carbon basis: location-based static average "+ci+
     " g/kWh (Google 2024 fleet proxy; range reflects regional/hourly grid spread). Split: "+
     fmtTok(tk.in)+" in / "+fmtTok(tk.cache)+
     " cache / "+fmtTok(tk.out)+" out. Water includes off-site generation water (EWIF); ranges are scenario envelopes, not confidence intervals.";
-  renderDuck(); renderTiers();
+  renderHero();
+  renderDuck();
+  renderTiers();
+  renderSavings();
 }
 
-/* ---- duck curve (line + crosshair tooltip + click-to-pin) ---- */
-let pinned = 19;
+function renderSavings(){
+  if(!last) return;
+  const rows = [];
+  const tier = last.tier;
+  const down = TIER_DOWN[tier];
+  if(down !== tier){
+    const alt = MF.compute(C, down, last.tk, last.region);
+    const de = last.e[0] - alt.energy[0];
+    const pct = last.e[0] > 0 ? 100*de/last.e[0] : 0;
+    rows.push({
+      label: "One tier down ("+down+")",
+      delta: (de>0?"−":"+")+fmtSig(Math.abs(de))+" Wh · "+fmtSig(Math.abs(pct))+"% energy"
+    });
+  }
+  const small = MF.compute(C, "small", last.tk, last.region);
+  const deS = last.e[0] - small.energy[0];
+  const pctS = last.e[0] > 0 ? 100*deS/last.e[0] : 0;
+  rows.push({
+    label: "All-small",
+    delta: (deS>0?"−":"+")+fmtSig(Math.abs(deS))+" Wh · "+fmtSig(Math.abs(pctS))+"% energy"
+  });
+  const minCI = minDuck();
+  const nowC = last.e[0]/1000*DUCK[pinned];
+  const noonC = last.e[0]/1000*minCI;
+  const dc = nowC - noonC;
+  const pctC = nowC > 0 ? 100*dc/nowC : 0;
+  rows.push({
+    label: "This hour vs solar noon",
+    delta: (dc>0?"−":"+")+fmtSig(Math.abs(dc))+" gCO2e · "+fmtSig(Math.abs(pctC))+"% carbon at the cleanest hour"
+  });
+  $("savingsrows").innerHTML = rows.map(r =>
+    `<div class="save"><p class="save__label">${r.label}<span class="save__tag">modeled</span></p>`+
+    `<p class="save__delta">${r.delta}</p></div>`
+  ).join("");
+}
+
 function renderDuck(){
   const W=820,H=300,L=52,R=14,T=18,B=40,pw=W-L-R,ph=H-T-B,ymax=700;
   const X=h=>L+pw*h/23, Y=v=>T+ph*(1-v/ymax);
   const pts = DUCK.map((v,h)=>X(h).toFixed(1)+","+Y(v).toFixed(1)).join(" ");
-  const minCI = Math.min(...DUCK);
+  const minCI = minDuck();
   let g = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="stylized marginal carbon intensity by hour">`;
   for(const gv of [0,200,400,600]) g += `<line x1="${L}" y1="${Y(gv)}" x2="${L+pw}" y2="${Y(gv)}" stroke="var(--grid)"/>`+
     `<text x="${L-6}" y="${Y(gv)+4}" text-anchor="end" font-size="10" fill="var(--muted)">${gv}</text>`;
@@ -189,7 +327,7 @@ function renderDuck(){
     const mult = DUCK[h]/Math.max(minCI,1);
     let s = `Pinned ${String(h).padStart(2,"0")}:00 — ~${DUCK[h]} g/kWh marginal, ${fmtSig(mult)}× the cleanest hour.`;
     if(last) s += ` Your configured workload at this hour: ~${fmtSig(carbonAt(h))} gCO2e (vs ${fmtSig(last.e[0]/1000*minCI)} g at solar noon).`;
-    return s + " Stylized curve — configure the CLI's live signal for your real grid.";
+    return s + " Stylized curve — configure the CLI’s live signal for your real grid.";
   };
   $("ducknote").textContent = noteFor(pinned);
   const hit = $("duckhit"), tip = $("tip"), svg = $("duck").firstChild;
@@ -205,10 +343,9 @@ function renderDuck(){
       (last?`<br>workload ≈ ${fmtSig(last.e[0]/1000*DUCK[h])} gCO2e`:"");
   });
   hit.addEventListener("mouseleave", ()=> tip.style.display="none");
-  hit.addEventListener("click", ev=>{ pinned = hourFromEvent(ev); renderDuck(); });
+  hit.addEventListener("click", ev=>{ pinned = hourFromEvent(ev); renderDuck(); renderHero(); renderSavings(); });
 }
 
-/* ---- tier comparison (horizontal bars + whiskers + direct labels) ---- */
 function renderTiers(){
   if(!last) return;
   const tiers = ["small","mid","frontier"];
@@ -222,7 +359,7 @@ function renderTiers(){
   tiers.forEach((t,i)=>{
     const cy=T+rh*i+rh/2, d=data[i];
     g += `<text x="${L-8}" y="${cy+4}" text-anchor="end" font-size="12" fill="var(--ink)" font-weight="${t===sel?700:400}">${t}</text>`;
-    g += `<rect x="${L}" y="${cy-bar/2}" width="${Math.max(BX(d[0])-L,2)}" height="${bar}" rx="4" fill="${cols[i]}" class="tbar" data-i="${i}"/>`;
+    g += `<rect x="${L}" y="${cy-bar/2}" width="${Math.max(BX(d[0])-L,2)}" height="${bar}" rx="2" fill="${cols[i]}" class="tbar" data-i="${i}"/>`;
     g += `<line x1="${BX(d[1])}" y1="${cy}" x2="${BX(d[2])}" y2="${cy}" stroke="var(--ink2)" stroke-width="1.5"/>`;
     g += `<line x1="${BX(d[1])}" y1="${cy-5}" x2="${BX(d[1])}" y2="${cy+5}" stroke="var(--ink2)" stroke-width="1.5"/>`;
     g += `<line x1="${BX(d[2])}" y1="${cy-5}" x2="${BX(d[2])}" y2="${cy+5}" stroke="var(--ink2)" stroke-width="1.5"/>`;
@@ -247,21 +384,58 @@ function shareCard(){
   const t = `My AI workload estimate (${fmtTok(last.tk.total)} tokens, ${$("tier").value} tier): `+
     `⚡ ${fmtSig(last.e[0])} Wh · 💧 ~${fmtSig(last.w[0])} mL · 🌫 ${fmtSig(last.c[0])} gCO2e (loc-based). `+
     `Ranges & methodology: github.com/rdsciv/footprint`;
-  navigator.clipboard.writeText(t).then(()=>{ $("share").textContent="Copied ✓"; setTimeout(()=>$("share").textContent="Copy result card",1500); });
+  navigator.clipboard.writeText(t).then(()=>{
+    $("share").textContent="Copied";
+    $("share").dataset.state="success";
+    setTimeout(()=>{ $("share").textContent="Copy result card"; delete $("share").dataset.state; },1500);
+  });
+}
+
+/* ---- command palette ---- */
+let cmdkOpen = false, cmdkIdx = 0, cmdkHits = JUMPS.slice();
+function renderCmdk(){
+  $("cmdk-results").innerHTML = `<p class="cmdk__group">On this page</p>` +
+    cmdkHits.map((j,i)=>`<button type="button" class="cmdk__item${i===cmdkIdx?" is-active":""}" data-id="${j.id}">${j.label}<span>${j.hint}</span></button>`).join("");
+  $("cmdk-results").querySelectorAll(".cmdk__item").forEach(btn=>{
+    btn.addEventListener("click", ()=> jumpTo(btn.dataset.id));
+  });
+}
+function openCmdk(){
+  cmdkOpen = true; cmdkIdx = 0;
+  const q = ($("cmdk-input").value||"").toLowerCase();
+  cmdkHits = JUMPS.filter(j => !q || j.label.toLowerCase().includes(q) || j.hint.includes(q) || j.id.includes(q));
+  if(!cmdkHits.length) cmdkHits = JUMPS.slice();
+  $("cmdk").classList.add("is-open");
+  $("cmdk").setAttribute("aria-hidden","false");
+  renderCmdk();
+  $("cmdk-input").focus();
+  document.body.style.overflow = "hidden";
+}
+function closeCmdk(){
+  cmdkOpen = false;
+  $("cmdk").classList.remove("is-open");
+  $("cmdk").setAttribute("aria-hidden","true");
+  document.body.style.overflow = "";
+}
+function jumpTo(id){
+  closeCmdk();
+  const el = document.getElementById(id);
+  if(el) el.scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
 }
 
 async function init(){
   try{
-    const r = await fetch("../modelfootprint/coefficients.json");
+    const r = await fetch("./coefficients.json");
     if(!r.ok) throw new Error("HTTP "+r.status);
     C = await r.json();
   }catch(err){
     $("loadstate").innerHTML = `<span class="err">Could not load coefficients.json (${err.message}).</span> `+
-      `Serve the repo root (e.g. <code>python3 -m http.server</code>) — no numbers will be invented.`;
+      `Serve the <code>site/</code> folder (e.g. <code>python3 -m http.server</code> from <code>site/</code>) — no numbers will be invented.`;
     return;
   }
   $("loadstate").textContent = "coefficients v"+C.$schema_version+" · updated "+C.$last_updated+
     " · every value carries {central, low, high, label, source}";
+  $("coeffver").textContent = "v"+(C.$schema_version||"?");
   const rs = $("region");
   for(const k of Object.keys(C.region_presets)) if(!k.startsWith("_") && !k.startsWith("$"))
     rs.add(new Option(k.replace("_"," ") + " — " + (C.region_presets[k].example_locations||[])[0], k));
@@ -269,6 +443,18 @@ async function init(){
   $("calc").hidden = false;
   for(const id of ["tier","profile","region","tokens"]) $(id).addEventListener("input", renderCalc);
   $("share").addEventListener("click", shareCard);
+  $("searchpill").addEventListener("click", openCmdk);
+  $("cmdk").querySelector("[data-close]").addEventListener("click", closeCmdk);
+  $("cmdk-input").addEventListener("input", ()=>{ cmdkIdx=0; openCmdk(); });
+  document.addEventListener("keydown", ev=>{
+    const meta = ev.metaKey || ev.ctrlKey;
+    if(meta && ev.key.toLowerCase()==="k"){ ev.preventDefault(); cmdkOpen ? closeCmdk() : openCmdk(); return; }
+    if(!cmdkOpen) return;
+    if(ev.key==="Escape"){ ev.preventDefault(); closeCmdk(); }
+    if(ev.key==="ArrowDown"){ ev.preventDefault(); cmdkIdx=Math.min(cmdkHits.length-1, cmdkIdx+1); renderCmdk(); }
+    if(ev.key==="ArrowUp"){ ev.preventDefault(); cmdkIdx=Math.max(0, cmdkIdx-1); renderCmdk(); }
+    if(ev.key==="Enter"){ ev.preventDefault(); if(cmdkHits[cmdkIdx]) jumpTo(cmdkHits[cmdkIdx].id); }
+  });
   renderCalc();
 }
 init();
