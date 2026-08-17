@@ -60,7 +60,7 @@ Five deep dives, each standalone (and each the receipts behind a coefficient):
 | [04 · Water](./docs/04-water.md) | the power plant usually evaporates more water for your prompt than the datacenter does |
 | [05 · Which model, when](./docs/05-which-model-when.md) | one tier down + batch API is the cheapest *and* cleanest configuration that exists |
 
-Interactive version — calculator, duck-curve explorer, tier comparison: [rdsciv.github.io/footprint](https://rdsciv.github.io/footprint/) (or `cd site && python3 -m http.server`).
+Interactive version — calculator, duck-curve explorer, tier comparison: [rdsciv.github.io/footprint/site](https://rdsciv.github.io/footprint/site/) (or `cd site && python3 -m http.server`).
 
 The rigorous spine: [METHODOLOGY.md](./METHODOLOGY.md) (equations, sources, uncertainty propagation) · [LIMITATIONS_AND_FAQ.md](./LIMITATIONS_AND_FAQ.md) · [LIVE_SIGNAL_ROADMAP.md](./LIVE_SIGNAL_ROADMAP.md).
 
