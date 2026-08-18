@@ -16,57 +16,26 @@
 
 <header class="nav" id="nav">
   <div class="nav__inner">
-    <a class="nav__brand" href="#top">footprint</a>
+    <a class="nav__brand" href="#estimate">footprint</a>
     <ul class="nav__links">
+      <li><a href="#estimate">Estimate</a></li>
       <li><a href="#place">Place</a></li>
       <li><a href="#when">Hour</a></li>
-      <li><a href="#basement">Basement</a></li>
-      <li><a href="#estimate">Estimate</a></li>
       <li><a href="#receipts">Receipts</a></li>
+      <li><a href="#install">Install</a></li>
     </ul>
-    <a class="nav__cta" href="#install">Install</a>
   </div>
 </header>
 
 <main class="wrap">
-<header class="hero" id="top" data-reveal style="--i:0">
-  <p class="hero__kicker">Directional telemetry</p>
-  <h1>Same tokens. Different grid.</h1>
-  <p class="hero__lede">We do not know the building that ran the decode. You choose a place. Carbon follows that assumption — or a live grid hour on the CLI — never a fabricated plant.</p>
-  <p class="hero__figure tnum" id="herofig">—<span class="hero__unit">×</span></p>
-  <p class="hero__note" id="heronote">Stylized CAISO-shaped marginal intensity, not your live grid.</p>
-  <p class="hero__meta" id="herometa"></p>
-</header>
-
 <p id="loadstate" class="note">loading coefficients…</p>
 
-<section class="chapter" id="place" data-reveal style="--i:1">
-  <h2>Assumed place.</h2>
-  <p>Claude Code talks to a global host. The most the API will say — on 4.6+ — is <code>us</code> or <code>global</code>. That is a jurisdiction, not Ashburn. These chips are <strong>hypothetical placement</strong>: they pick a climate class for water. Carbon stays the Google 2024 fleet proxy unless a staged live reading exists for that site.</p>
-  <div class="chips" id="sitechips"></div>
-  <p class="muted" id="placenote"></p>
-</section>
-
-<section class="chapter chapter--wide" id="when" data-reveal style="--i:1">
-  <h2>The hour.</h2>
-  <p>The same workload carries different carbon after sunset, because the grid’s marginal generator changes. Hover or tap — stylized from documented CAISO anchors (≈0&nbsp;g midday surplus, 500–630&nbsp;g evening ramp).</p>
-  <div class="chartwrap" id="duck"></div>
-  <p class="note" id="ducknote"></p>
-</section>
-
-<section class="chapter" id="basement" data-reveal style="--i:2">
-  <h2>The basement.</h2>
-  <p>A hall <em>can</em> be paid, or federally ordered, to leave the grid and burn diesel. Typical Virginia emergency units are boxed out of economic demand response; annual diesel energy is usually well under 1%. If that kWh <em>were</em> diesel, carbon jumps to about 780&nbsp;g/kWh direct (680–890). We did not observe this site. MODELED.</p>
-  <div class="panel">
-    <div class="bars" id="dieselbars"></div>
-    <p class="note" id="dieselnote"></p>
+<section class="block" id="estimate">
+  <div class="block__head">
+    <h1>Estimate</h1>
+    <p class="lede">Energy, water, carbon. Envelope, not a confidence interval. We do not know the building.</p>
   </div>
-</section>
-
-<section class="chapter chapter--wide" id="estimate" data-reveal style="--i:2">
-  <h2>Estimate a workload.</h2>
-  <p>Energy, water and carbon for a token mix you choose. Every figure is a scenario envelope — every factor at its low or high bound at once — not a confidence interval.</p>
-  <div class="panel" id="calc" hidden>
+  <div id="calc" hidden>
     <div class="controls">
       <label>model class
         <select id="tier">
@@ -88,25 +57,41 @@
     <div class="tiles" id="tiles"></div>
     <div class="eq" id="equiv"></div>
     <p class="note" id="basisnote"></p>
-    <button class="btn" type="button" id="share">Copy result card</button>
+    <button class="btn" type="button" id="share">Copy</button>
   </div>
 </section>
 
-<section class="chapter chapter--wide" id="which" data-reveal>
-  <h2>Which model.</h2>
-  <p>Energy for the workload above, re-priced on each tier. Whiskers are the envelope. All tier coefficients are MODELED — 2–3× bands.</p>
-  <div class="chartwrap" id="tiers"></div>
+<div class="split">
+<section class="block" id="place">
+  <h2>Assumed place</h2>
+  <p class="compact">Hypothetical. Sets climate for water. Carbon stays the 345 g/kWh fleet proxy unless a staged live CI exists. API at best says <code>us</code>/<code>global</code>.</p>
+  <div class="chips" id="sitechips"></div>
+  <p class="note" id="placenote"></p>
+  <div id="basement">
+    <h2>If diesel</h2>
+    <p class="compact">MODELED overlay — same kWh at ~780 g/kWh direct. Not written into the session number. We did not observe this site.</p>
+    <div class="bars" id="dieselbars"></div>
+    <p class="note" id="dieselnote"></p>
+  </div>
 </section>
 
-<section class="chapter" id="savings" data-reveal>
-  <h2>What you could have saved.</h2>
-  <p>Modeled scenarios on the same token mix. Not a promise you can force provider routing or always defer interactive work.</p>
+<section class="block" id="when">
+  <h2>Hour <span class="inline-stat" id="herofig">—<span class="hero__unit">×</span></span></h2>
+  <p class="compact" id="heronote">Stylized CAISO-shaped marginal CI, not your live grid. Click the curve.</p>
+  <p class="note" id="herometa"></p>
+  <div class="chartwrap" id="duck"></div>
+  <p class="note" id="ducknote"></p>
+</section>
+</div>
+
+<section class="block" id="which">
+  <h2>Tier / savings</h2>
+  <div class="chartwrap" id="tiers"></div>
   <div class="savings" id="savingsrows"></div>
 </section>
 
-<section class="chapter chapter--wide" id="receipts" data-reveal>
-  <h2>Receipts.</h2>
-  <p>Measured anchors stay in their own units. They are not substituted into the per-token math.</p>
+<section class="block" id="receipts">
+  <h2>Receipts</h2>
   <ul class="anchor-list">
     <li><strong>0.24 Wh · 0.26 mL · 0.03 gCO2e</strong> — Google, median Gemini Apps text prompt, full-stack (arXiv:2508.15734). Carbon is market-based — not comparable to this tool’s location-based default.</li>
     <li><strong>1.14 gCO2e · 45 mL / 400-token page</strong> — Mistral Large 2, ADEME + Carbone 4 LCA. Wider scope: includes amortized training.</li>
@@ -128,9 +113,9 @@
   <p class="muted">CodeCarbon measures watts on <em>your</em> machine, not the API hall. AMD’s EPYC TCO tools compare servers you buy — annual country kgCO2e/kWh × estimated kWh — not where a prompt ran.</p>
 </section>
 
-<section class="chapter" id="install" data-reveal>
-  <h2>Install.</h2>
-  <p>Python 3, stdlib only. The statusline never touches the network; live grid and weather refresh into an hourly cache.</p>
+<section class="block" id="install">
+  <h2>Install</h2>
+  <p class="compact">Python 3, stdlib only. Statusline never networks. Live grid: <code>FOOTPRINT_SITE</code> + Electricity Maps token, then <code>refresh</code>.</p>
   <div class="install">
 <pre><code>git clone https://github.com/rdsciv/footprint &amp;&amp; cd footprint
 pip install .
@@ -310,7 +295,7 @@ function renderSavings(){
 }
 
 function renderDuck(){
-  const W=820,H=300,L=52,R=14,T=18,B=40,pw=W-L-R,ph=H-T-B,ymax=700;
+  const W=820,H=180,L=44,R=10,T=10,B=28,pw=W-L-R,ph=H-T-B,ymax=700;
   const X=h=>L+pw*h/23, Y=v=>T+ph*(1-v/ymax);
   const pts = DUCK.map((v,h)=>X(h).toFixed(1)+","+Y(v).toFixed(1)).join(" ");
   const minCI = minDuck();
