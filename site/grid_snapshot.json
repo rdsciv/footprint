@@ -1,0 +1,5 @@
+{
+  "$schema_comment": "Optional overlay. Missing or diesel_risk=none means the page stays static. Never put API keys here.",
+  "diesel_risk": "none",
+  "sites": {}
+}

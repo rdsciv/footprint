@@ -29,7 +29,7 @@ Measured provider anchors bracket these tiers: Google's median Gemini Apps promp
 From docs 2–3, for *deferrable, heavy* work — batch evals, dataset generation, overnight agent runs:
 
 - **Best**: midday on a solar-heavy grid (marginal CI approaches zero; CAISO curtails surplus), or any hour on hydro/nuclear/wind-heavy grids (Nordics, Quebec, Pacific NW).
-- **Worst**: the 17:00–21:00 evening ramp on solar-heavy grids (500–630 gCO₂/kWh marginal) and grid-emergency hours, when demand-response diesel (~840 g/kWh) can enter the mix.
+- **Worst**: the 17:00–21:00 evening ramp on solar-heavy grids (500–630 gCO₂/kWh marginal) and grid-emergency hours, when *if* a campus were on backup diesel (~780 g/kWh direct, MODELED) carbon would jump. We cannot observe that from outside.
 - **Easiest win**: batch APIs. The 50% discount (OpenAI, Anthropic) hands the provider a 24-hour window to schedule your job — temporal flexibility is exactly what the duck curve rewards. Batch is the rare case where the cheap option and the clean option point the same way *by mechanism, not just correlation*.
 - Configure the live signal (`FOOTPRINT_SITE` + free Electricity Maps token) and `/footprint` will literally tell you the ratio: "deferring to 13:00 cuts this session's carbon ~5×."
 

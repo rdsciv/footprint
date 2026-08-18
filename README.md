@@ -56,7 +56,7 @@ Five deep dives, each standalone (and each the receipts behind a coefficient):
 |---|---|
 | [01 · The energy of inference](./docs/01-energy-of-inference.md) | the honest unit is the token, priced by class, with a range — and cache reads are 90% of agent tokens |
 | [02 · The duck curve](./docs/02-duck-curve-and-grid.md) | the same prompt carries **>10× different carbon by hour of day** on solar-heavy grids |
-| [03 · Fuel mix & diesel backup](./docs/03-fuel-mix-and-diesel-backup.md) | wind ≈ 11, diesel backup ≈ 840 gCO2e/kWh — and 4,700 permitted diesel generators sit in one Virginia county |
+| [03 · Fuel mix & diesel backup](./docs/03-fuel-mix-and-diesel-backup.md) | wind ≈ 11, diesel genset ≈ 780 gCO2e/kWh direct — 4,151 DEQ-counted units in Loudoun (2023); we cannot see a campus flip |
 | [04 · Water](./docs/04-water.md) | the power plant usually evaporates more water for your prompt than the datacenter does |
 | [05 · Which model, when](./docs/05-which-model-when.md) | one tier down + batch API is the cheapest *and* cleanest configuration that exists |
 
