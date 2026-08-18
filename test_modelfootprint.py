@@ -543,6 +543,27 @@ class Test10InsightsAndCounterfactuals(unittest.TestCase):
         self.assertIn("### What you could have saved", md)
 
 
+class Test12DieselCoefficients(unittest.TestCase):
+    def test_diesel_coefficient_is_genset_not_ar5_oil(self):
+        c = engine.load_coefficients()
+        d = c["diesel_backup"]["direct_g_per_kWh"]
+        self.assertEqual(d["central"], 780)
+        self.assertEqual(d["low"], 680)
+        self.assertEqual(d["high"], 890)
+        self.assertEqual(d["label"], "modeled")
+        self.assertNotIn("AR5", d["source"])
+        self.assertIn("EPA", d["source"])
+        self.assertIn("gal", d["source"])
+        self.assertEqual(
+            c["diesel_backup"]["risk_vocab"],
+            ["none", "elevated_oil_share", "emergency_alert"],
+        )
+        life = c["diesel_backup"]["lifecycle_g_per_kWh"]
+        self.assertEqual(life["central"], 920)
+        self.assertLessEqual(life["low"], life["central"])
+        self.assertLessEqual(life["central"], life["high"])
+
+
 class Test11SitePublish(unittest.TestCase):
     """GitHub Pages publishes site/ as root — coefficients must live there
     as a byte-identical copy of the engine file."""

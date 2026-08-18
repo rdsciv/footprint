@@ -180,12 +180,30 @@
       "source": "IPCC AR5 WG3 Annex III lifecycle median and range"
     },
     "diesel_backup_generator": {
-      "central": 840,
-      "low": 700,
-      "high": 1000,
+      "central": 780,
+      "low": 680,
+      "high": 890,
       "label": "modeled",
-      "source": "IPCC AR5 oil-fired generation lifecycle median (840) as the anchor; standby diesel gensets burn ~0.07-0.08 gal/kWh at load (~0.72-0.82 kgCO2/kWh direct combustion) plus upstream fuel-cycle emissions. Backup units run only during outages, testing, and some demand-response events -- the annualized energy share is small, but every kWh they serve is ~20-80x the carbon of the wind/solar kWh they replace"
+      "source": "Standby diesel genset DIRECT combustion: EPA GHG Emission Factors Hub 2024 Distillate No. 2 (10.21 kg CO2/gal) x 0.067-0.080 gal/kWh heat rate. IPCC AR5 Table A.III.2 has no oil/diesel row -- do not cite 840 as AR5. Lifecycle sibling lives in diesel_backup.lifecycle_g_per_kWh. Context only; not a term in carbon_g."
     }
+  },
+  "diesel_backup": {
+    "$description": "On-site diesel genset overlay. NEVER multiplied into session carbon_g unless a measured on-site signal exists (none is public). Use as a labeled MODELED counterfactual only.",
+    "direct_g_per_kWh": {
+      "central": 780,
+      "low": 680,
+      "high": 890,
+      "label": "modeled",
+      "source": "EPA GHG Emission Factors Hub 2024 Distillate Fuel Oil No. 2 10.21 kg CO2/gal x 0.067-0.080 gal/kWh standby heat rate (EIA 10.19 kg/gal cross-check). CH4/N2O ~3 gCO2e/kWh omitted at two sig figs."
+    },
+    "lifecycle_g_per_kWh": {
+      "central": 920,
+      "low": 800,
+      "high": 1100,
+      "label": "modeled",
+      "source": "Direct genset combustion plus ~18-25% well-to-tank (GREET-class diesel WTT). Display-only sibling; default counterfactual uses direct."
+    },
+    "risk_vocab": ["none", "elevated_oil_share", "emergency_alert"]
   },
   "equivalence_anchors": {
     "$description": "Everyday-scale conversion anchors for display only (report equivalences and the site). Never inputs to the core equations.",
