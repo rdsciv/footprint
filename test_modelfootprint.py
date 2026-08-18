@@ -414,6 +414,13 @@ class Test8GoldenCrossRuntime(unittest.TestCase):
                 })
         for x in (0.0999, 4.6812, 13.02, 0.234, 1234.0, 99.9, 0.001234, 567890.0):
             fixtures["fmt_sig"].append({"x": x, "n": 2, "expected": engine.fmt_sig(x)})
+        fixtures["diesel"] = []
+        for energy in ([1000.0, 500.0, 2000.0], [240.0, 72.0, 850.0]):
+            sc = counterfactuals.scenario_diesel({"energy_Wh": tuple(energy)}, COEFFS)
+            fixtures["diesel"].append({
+                "energy": energy,
+                "expected": list(sc["carbon_g"]),
+            })
         fx_path = os.path.join(TMP, "golden.json")
         with open(fx_path, "w") as f:
             json.dump(fixtures, f)
@@ -562,6 +569,36 @@ class Test12DieselCoefficients(unittest.TestCase):
         self.assertEqual(life["central"], 920)
         self.assertLessEqual(life["low"], life["central"])
         self.assertLessEqual(life["central"], life["high"])
+
+
+class Test13DieselScenario(unittest.TestCase):
+    def test_diesel_scenario_does_not_change_compute_carbon(self):
+        entries = {"m": (1000, 0, 100, "claude-sonnet-4")}
+        r = engine.compute(entries, COEFFS, "temperate")
+        before = r["carbon_g"]
+        sc = counterfactuals.scenario_diesel(r, COEFFS)
+        r2 = engine.compute(entries, COEFFS, "temperate")
+        self.assertEqual(r2["carbon_g"], before)
+        self.assertGreater(sc["carbon_g"][0], before[0])
+        self.assertEqual(sc["label"], "modeled-diesel")
+        self.assertIsNone(sc["replaces"])
+
+    def test_diesel_scenario_scales_only_with_energy(self):
+        a = {"energy_Wh": (1000.0, 500.0, 2000.0)}
+        b = {"energy_Wh": (2000.0, 1000.0, 4000.0)}
+        sa = counterfactuals.scenario_diesel(a, COEFFS)
+        sb = counterfactuals.scenario_diesel(b, COEFFS)
+        self.assertAlmostEqual(sb["carbon_g"][0], 2 * sa["carbon_g"][0])
+        self.assertAlmostEqual(sa["carbon_g"][0], 1000.0 / 1000.0 * 780)
+
+    def test_compute_ignores_diesel_risk_in_live(self):
+        entries = {"m": (1000, 0, 100, "claude-sonnet-4")}
+        r0 = engine.compute(entries, COEFFS, "temperate")
+        r1 = engine.compute(
+            entries, COEFFS, "temperate",
+            live={"diesel_risk": "emergency_alert"},
+        )
+        self.assertEqual(r0["carbon_g"], r1["carbon_g"])
 
 
 class Test11SitePublish(unittest.TestCase):

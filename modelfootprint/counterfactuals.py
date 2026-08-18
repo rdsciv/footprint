@@ -177,6 +177,30 @@ def scenario_timing(baseline, live, coeffs=None):
     return best, worst
 
 
+def _energy_triple(result):
+    e = result["energy_Wh"]
+    if isinstance(e, dict):
+        return (e["central"], e["low"], e["high"])
+    return tuple(e)
+
+
+def scenario_diesel(result, coeffs):
+    """Grams if the same facility kWh were served by on-site diesel.
+
+    MODELED overlay. Does not write carbon_g on the session result and must
+    not be fed back into compute(). Uses diesel_backup.direct_g_per_kWh.
+    """
+    block = coeffs["diesel_backup"]["direct_g_per_kWh"]
+    energy = _energy_triple(result)
+    carbon = tuple(energy[i] / 1000.0 * block[b] for i, b in enumerate(("central", "low", "high")))
+    return {
+        "carbon_g": carbon,
+        "ci_g_per_kWh": (block["central"], block["low"], block["high"]),
+        "label": "modeled-diesel",
+        "replaces": None,
+    }
+
+
 def scenario_profile(entries, coeffs, region_key, baseline, profile, live=None):
     """Re-split total tokens into a profile (chat/agent/out-heavy) at dominant tier."""
     if not entries or profile not in PROFILES:

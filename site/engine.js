@@ -50,6 +50,13 @@
     return { energyIT: it, energy: energy, water: water, carbon: carbon, ci: ci[0] };
   }
 
+  function dieselScenario(energyWh, C) {
+    var d = C.diesel_backup.direct_g_per_kWh;
+    var ci = [d.central, d.low, d.high];
+    var carbon = energyWh.map(function (e, i) { return (e / 1000) * ci[i]; });
+    return { carbon: carbon, ci: ci, label: "modeled-diesel", replaces: null };
+  }
+
   /* Mirror of Python fmt_sig, including negative-decimal rounding
    * (1234 -> "1200") and the power-of-ten crossing correction
    * (0.0999 -> "0.10", not "0.100"). Exact .5 halves can differ between
@@ -83,6 +90,7 @@
     energyIT: energyIT,
     ciBounds: ciBounds,
     compute: compute,
+    dieselScenario: dieselScenario,
     fmtSig: fmtSig,
     fmtTok: fmtTok,
   };

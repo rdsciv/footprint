@@ -49,6 +49,18 @@ for (const f of fx.fmt_sig) {
   }
 }
 
+for (const d of fx.diesel || []) {
+  const got = MF.dieselScenario(d.energy, C);
+  for (let i = 0; i < 3; i++) {
+    if (!close(got.carbon[i], d.expected[i])) {
+      failures++;
+      console.error(
+        `MISMATCH diesel carbon[${i}]: js=${got.carbon[i]} py=${d.expected[i]}`
+      );
+    }
+  }
+}
+
 if (failures) {
   console.error(`golden check FAILED: ${failures} mismatch(es)`);
   process.exit(1);
