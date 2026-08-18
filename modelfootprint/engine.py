@@ -195,6 +195,47 @@ def parse_transcript(path):
     return entries
 
 
+def parse_transcript_meta(path):
+    """Optional provider fields that must not be invented.
+
+    Anthropic Claude 4.6+ may set usage.inference_geo to 'us' or 'global'.
+    If any recorded value is 'global', the session is 'global'. Only when
+    every present value is 'us' do we report 'us'. Absent field → None.
+    This is a jurisdiction crumb, never a facility.
+    """
+    counts = {}
+    lineno = 0
+    with open(path, "rb") as f:
+        for raw in f:
+            lineno += 1
+            if b'"usage"' not in raw:
+                continue
+            try:
+                d = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(d, dict) or d.get("type") != "assistant":
+                continue
+            m = d.get("message")
+            if not isinstance(m, dict):
+                continue
+            u = m.get("usage")
+            if not isinstance(u, dict):
+                continue
+            geo = u.get("inference_geo")
+            if geo in ("us", "global"):
+                counts[geo] = counts.get(geo, 0) + 1
+    if not counts:
+        resolved = None
+    elif counts.get("global"):
+        resolved = "global"
+    elif counts.get("us"):
+        resolved = "us"
+    else:
+        resolved = None
+    return {"inference_geo": resolved, "inference_geo_counts": counts}
+
+
 def _entry_energy(tier, tok_in, tok_cache, tok_out, bound):
     return (
         tok_in * tier["e_in_Wh_per_1k_tok"][bound]

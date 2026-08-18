@@ -79,6 +79,24 @@ def when_advice(snapshot, coeffs):
             "[relative index, not g/kWh]" % (wt_region, round(pct), band)
         )
 
+    risk = snapshot.get("diesel_risk") if snapshot else None
+    if risk == "emergency_alert":
+        d = (coeffs.get("diesel_backup") or {}).get("direct_g_per_kWh") or {}
+        ci = d.get("central", 780)
+        lo = d.get("low", 680)
+        hi = d.get("high", 890)
+        lines.append(
+            "Grid emergency in this balancing area. If this campus were on "
+            "backup diesel, CI ≈ %s g/kWh direct (%s–%s). We did not observe "
+            "this site. MODELED."
+            % (fmt_sig(ci), fmt_sig(lo), fmt_sig(hi))
+        )
+    elif risk == "elevated_oil_share":
+        lines.append(
+            "Regional oil generation is elevated. That is utility oil, not a "
+            "measurement of this site. MODELED risk flag."
+        )
+
     if not lines:
         mods = coeffs.get("time_of_day_seasonal_modifiers", {})
         if mods:

@@ -382,6 +382,8 @@ def refresh(coeffs=None, force=False):
         "site": cfg["site"],
         "zone": cfg["zone"],
         "region": cfg["region"],
+        # v1: schema lock only. No EIA/PJM fetch. Never swap CI from this field.
+        "diesel_risk": "none",
     }
 
     def over_deadline(label):

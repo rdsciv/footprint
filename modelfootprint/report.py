@@ -14,7 +14,7 @@ import os
 import re
 
 from .counterfactuals import all_counterfactuals, format_savings_section
-from .engine import compute, fmt_sig, fmt_tok, parse_transcript, tier_for
+from .engine import compute, fmt_sig, fmt_tok, parse_transcript, parse_transcript_meta, tier_for
 from .insights import (
     by_model_rows,
     composition_lines,
@@ -200,6 +200,20 @@ def session_report(coeffs, region, transcript=None, live=None):
     models = models_summary(entries, coeffs)
     lines += ["## Session footprint", ""]
     lines += _metrics_block(res, live, models=models, q_note=q_note)
+    meta = parse_transcript_meta(tpath)
+    geo = meta.get("inference_geo")
+    if geo == "us":
+        lines += [
+            "",
+            "Location: provider-reported US infrastructure, facility unknown "
+            "(inference_geo=us).",
+        ]
+    else:
+        tag = "inference_geo=global" if geo == "global" else "inference_geo=absent"
+        lines += [
+            "",
+            "Location: not disclosed (%s). This is not a building." % tag,
+        ]
 
     eq = _equivalences(res, coeffs)
     if eq:

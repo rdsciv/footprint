@@ -261,6 +261,20 @@ class Test5Recommendations(unittest.TestCase):
             {"moer_percentile": 90.0, "moer_region": "CAISO_NORTH"}, COEFFS)
         self.assertTrue(any("not g/kWh" in s and "CAISO_NORTH" in s for s in lines), lines)
 
+    def test_when_advice_silent_when_diesel_none(self):
+        lines = recommend.when_advice({"diesel_risk": "none"}, COEFFS)
+        self.assertFalse(any("diesel" in x.lower() for x in lines), lines)
+
+    def test_when_advice_emergency_is_modeled_not_a_measurement(self):
+        lines = recommend.when_advice(
+            {"diesel_risk": "emergency_alert", "diesel_risk_source": "test"},
+            COEFFS,
+        )
+        blob = " ".join(lines).lower()
+        self.assertIn("diesel", blob)
+        self.assertIn("modeled", blob)
+        self.assertIn("did not observe", blob)
+
     def test_which_advice(self):
         res = engine.compute({"m": (10000, 200000, 5000, "claude-fable-5")}, COEFFS, "temperate")
         lines = recommend.which_advice(res, COEFFS)
@@ -599,6 +613,74 @@ class Test13DieselScenario(unittest.TestCase):
             live={"diesel_risk": "emergency_alert"},
         )
         self.assertEqual(r0["carbon_g"], r1["carbon_g"])
+
+
+def _write_jsonl(rows):
+    f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+    for row in rows:
+        f.write(json.dumps(row) + "\n")
+    f.close()
+    return f.name
+
+
+def _assistant(mid, geo=None, model="claude-sonnet-4"):
+    usage = {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 5,
+    }
+    if geo is not None:
+        usage["inference_geo"] = geo
+    return {
+        "type": "assistant",
+        "message": {"id": mid, "model": model, "usage": usage},
+    }
+
+
+class Test14InferenceGeo(unittest.TestCase):
+    def test_inference_geo_all_us(self):
+        path = _write_jsonl([_assistant("a", "us"), _assistant("b", "us")])
+        try:
+            meta = engine.parse_transcript_meta(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(meta["inference_geo"], "us")
+        self.assertEqual(meta["inference_geo_counts"]["us"], 2)
+
+    def test_inference_geo_global_wins_if_any_global(self):
+        path = _write_jsonl([_assistant("a", "us"), _assistant("b", "global")])
+        try:
+            meta = engine.parse_transcript_meta(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(meta["inference_geo"], "global")
+
+    def test_inference_geo_absent(self):
+        path = _write_jsonl([_assistant("a"), _assistant("b")])
+        try:
+            meta = engine.parse_transcript_meta(path)
+        finally:
+            os.unlink(path)
+        self.assertIsNone(meta["inference_geo"])
+
+    def test_report_names_undisclosed_location(self):
+        path = _write_jsonl([_assistant("a", "global")])
+        try:
+            md = report.session_report(COEFFS, "temperate", transcript=path)
+        finally:
+            os.unlink(path)
+        self.assertIn("not disclosed", md.lower())
+        self.assertIn("inference_geo", md.lower())
+
+    def test_report_names_us_facility_unknown(self):
+        path = _write_jsonl([_assistant("a", "us")])
+        try:
+            md = report.session_report(COEFFS, "temperate", transcript=path)
+        finally:
+            os.unlink(path)
+        self.assertIn("US infrastructure", md)
+        self.assertIn("facility unknown", md.lower())
 
 
 class Test11SitePublish(unittest.TestCase):
